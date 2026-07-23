@@ -99,7 +99,7 @@ Instale um gerenciador de UserScripts no seu navegador Chromium ou Firefox:
 - **Violentmonkey** (Opção open-source)
 
 ### Passo 2: Adicione o Código
-Crie um novo script na extensão e cole o conteúdo oficial obtido direto do **[GitHub Repositório Oficial](https://github.com/guilherme-se/justpokedex)** ou do **[GitHub Gist Oficial](https://gist.github.com/guilherme-se/467be7a7f64d13a8980a172886091362)**.
+Crie um novo script na extensão e cole o conteúdo oficial obtido direto do **[GitHub Repositório Oficial](https://github.com/guilherme-se/justpokedex)**.
 
 Acesse **[poke.idleworld.online](https://poke.idleworld.online/)** e aproveite!
 
@@ -110,14 +110,13 @@ Acesse **[poke.idleworld.online](https://poke.idleworld.online/)** e aproveite!
 
 ## 🛡️ ATENÇÃO: Transparência & Segurança do Código
 
-> ⚠️ **LINKS OFICIAIS E SEGUROS DO PROJETO:**  
-> **Nunca baixe ou instale arquivos de código enviados por terceiros** no Discord, WhatsApp ou redes sociais! Arquivos repassados por outras pessoas podem ter sofrido alterações maliciosas. Os **únicos repositórios oficiais e verificados** do JustPokédex são:  
-> 📦 **GitHub Repositório:** **[https://github.com/guilherme-se/justpokedex](https://github.com/guilherme-se/justpokedex)**  
-> 🔗 **GitHub Gist:** **[https://gist.github.com/guilherme-se/467be7a7f64d13a8980a172886091362](https://gist.github.com/guilherme-se/467be7a7f64d13a8980a172886091362)**
+> ⚠️ **ÚNICO LINK OFICIAL E SEGURO DO PROJETO:**  
+> **Nunca baixe ou instale arquivos de código enviados por terceiros** no Discord, WhatsApp ou redes sociais! Arquivos repassados por outras pessoas podem ter sofrido alterações maliciosas. O **único repositório oficial e verificado** do JustPokédex é:  
+> 📦 **GitHub Repositório:** **[https://github.com/guilherme-se/justpokedex](https://github.com/guilherme-se/justpokedex)**
 
 - **💻 Por que o Tampermonkey?**: Gerenciadores de UserScript dão controle total ao usuário. Você insere um script legível direto no navegador, podendo inspecionar o código a qualquer momento.
 - **🔒 Execução 100% Local**: O script roda 100% no seu navegador (Client-Side). Nenhuma senha, token ou credencial é salva ou enviada para servidores externos.
-- **🔍 Audite com IA ou Devs**: Por ser 100% Open-Source, incentivamos que você copie o código do Gist oficial e jogue em IAs como *ChatGPT, Claude ou Gemini*, ou peça para um desenvolvedor amigo auditar o script antes de instalar!
+- **🔍 Audite com IA ou Devs**: Por ser 100% Open-Source, incentivamos que você copie o código do repositório oficial e jogue em IAs como *ChatGPT, Claude ou Gemini*, ou peça para um desenvolvedor amigo auditar o script antes de instalar!
 
 ---
 
