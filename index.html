@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JustPokédex — Documentação & Central Interativa</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;800&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #0a0d14;
+            --bg-card: #121824;
+            --bg-card-hover: #182030;
+            --border-card: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(241, 198, 68, 0.3);
+
+            --primary-red: #e5383b;
+            --primary-red-glow: rgba(229, 56, 59, 0.3);
+            --accent-gold: #f1c644;
+            --accent-gold-glow: rgba(241, 198, 68, 0.25);
+            --accent-cyan: #55e6d3;
+            --accent-green: #4caf50;
+            --accent-blue: #2196f3;
+            --accent-purple: #9c27b0;
+
+            --text-main: #f0f4f9;
+            --text-muted: #8392a7;
+            --text-dark: #0a0d14;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            line-height: 1.6;
+            background-image:
+                radial-gradient(circle at 15% 15%, rgba(229, 56, 59, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(241, 198, 68, 0.06) 0%, transparent 40%),
+                radial-gradient(circle at 50% 50%, rgba(85, 230, 211, 0.04) 0%, transparent 60%);
+            background-attachment: fixed;
+            padding-bottom: 80px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* HEADER & HERO */
+        header {
+            padding: 40px 0 30px;
+            border-bottom: 1px solid var(--border-card);
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .hero-badge-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 4px 12px;
+            border-radius: 99px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge-red {
+            background: rgba(229, 56, 59, 0.15);
+            color: #ff6b6e;
+            border: 1px solid rgba(229, 56, 59, 0.4);
+        }
+
+        .badge-gold {
+            background: rgba(241, 198, 68, 0.15);
+            color: #ffd84f;
+            border: 1px solid rgba(241, 198, 68, 0.4);
+        }
+
+        .badge-cyan {
+            background: rgba(85, 230, 211, 0.15);
+            color: #55e6d3;
+            border: 1px solid rgba(85, 230, 211, 0.4);
+        }
+
+        .hero-title-group {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 16px;
+        }
+
+        .pokeball-logo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 4px solid #111;
+            background: linear-gradient(to bottom, #e5383b 44%, #111 44%, #111 56%, #fff 56%);
+            position: relative;
+            box-shadow: 0 0 20px var(--primary-red-glow);
+            flex-shrink: 0;
+            animation: pulse 3s infinite ease-in-out;
+        }
+
+        .pokeball-logo::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 18px;
+            height: 18px;
+            background: #fff;
+            border: 4px solid #111;
+            border-radius: 50%;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 20px var(--primary-red-glow);
+            }
+
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 0 35px var(--accent-gold-glow);
+            }
+        }
+
+        h1 {
+            font-size: 42px;
+            font-weight: 900;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, var(--accent-gold) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .hero-description {
+            font-size: 18px;
+            color: var(--text-muted);
+            max-width: 800px;
+            font-weight: 400;
+        }
+
+        /* NAVIGATION TABS */
+        .nav-bar {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+            overflow-x: auto;
+            padding: 8px 6px 14px 6px;
+        }
+
+        .nav-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            color: var(--text-muted);
+            padding: 10px 20px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .nav-btn:hover,
+        .nav-btn.active {
+            background: rgba(241, 198, 68, 0.1);
+            border-color: var(--accent-gold);
+            color: var(--accent-gold);
+            transform: translateY(-2px);
+        }
+
+        /* GRID LAYOUTS */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        /* CARDS */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 20px;
+            padding: 28px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card:hover {
+            border-color: rgba(255, 255, 255, 0.18);
+            transform: translateY(-4px);
+        }
+
+        .card-gold-border {
+            border-color: var(--border-accent);
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-main);
+        }
+
+        .card-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            display: grid;
+            place-items: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .card-p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        /* SECTION TITLES */
+        .section-header {
+            margin: 50px 0 24px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .section-header h2 {
+            font-size: 26px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        .section-header .line {
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, var(--border-card), transparent);
+        }
+
+        /* FORMULA VISUALIZER */
+        .formula-box {
+            background: #080b12;
+            border: 1px solid var(--accent-gold-glow);
+            border-radius: 16px;
+            padding: 24px;
+            font-family: 'JetBrains Mono', monospace;
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .formula-main {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--accent-gold);
+            margin-bottom: 12px;
+        }
+
+        .formula-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+            text-align: left;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .formula-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-card);
+            padding: 10px 14px;
+            border-radius: 10px;
+        }
+
+        .formula-item strong {
+            color: var(--accent-cyan);
+            font-size: 14px;
+            display: block;
+        }
+
+        .formula-item span {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        /* INTERACTIVE DEMO CALCULATOR */
+        .calc-wrapper {
+            background: linear-gradient(145deg, #101622 0%, #0c101a 100%);
+            border: 2px solid var(--accent-gold);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 0 40px rgba(241, 198, 68, 0.15);
+        }
+
+        .calc-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 950px) {
+            .calc-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="number"],
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 12px 14px;
+            background: #080b12;
+            border: 1px solid var(--border-card);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 14px;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: var(--accent-gold);
+        }
+
+        .stats-inputs-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .stat-input-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-card);
+            border-radius: 10px;
+            padding: 8px;
+            text-align: center;
+        }
+
+        .stat-input-card label {
+            font-size: 10px;
+            margin-bottom: 4px;
+        }
+
+        .stat-input-card input {
+            text-align: center;
+            padding: 8px 4px;
+            font-size: 13px;
+        }
+
+        /* RESULT DISPLAY */
+        .result-card {
+            background: #080b12;
+            border: 1px solid rgba(85, 230, 211, 0.2);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            position: relative;
+        }
+
+        .gauge-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: conic-gradient(var(--accent-gold) calc(var(--score, 85) * 3.6deg), #1a2332 0deg);
+            display: grid;
+            place-items: center;
+            margin-bottom: 14px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(241, 198, 68, 0.2);
+        }
+
+        .gauge-circle::before {
+            content: '';
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: #080b12;
+            position: absolute;
+        }
+
+        .gauge-val {
+            position: relative;
+            z-index: 1;
+            font-size: 28px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .gauge-lbl {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            display: block;
+        }
+
+        .iv-bars-list {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .iv-bar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+        }
+
+        .iv-name {
+            width: 35px;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .iv-track {
+            flex: 1;
+            height: 8px;
+            background: #1a2332;
+            border-radius: 99px;
+            overflow: hidden;
+        }
+
+        .iv-fill {
+            height: 100%;
+            background: var(--accent-cyan);
+            border-radius: 99px;
+        }
+
+        .iv-val {
+            width: 45px;
+            text-align: right;
+            font-weight: 700;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* MINIMALIST STATS CARDS (ANEXO 3 STYLE) */
+        .minimal-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        @media (max-width: 650px) {
+            .minimal-stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .minimal-stat-card {
+            background: #0d121c;
+            border: 1px solid var(--border-card);
+            border-top: 3px solid var(--accent-gold);
+            border-radius: 12px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .minimal-stat-card:hover {
+            transform: translateY(-2px);
+            background: #121927;
+        }
+
+        .minimal-stat-label {
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+        }
+
+        .minimal-stat-input-main {
+            width: 100%;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 900;
+            color: #ffffff;
+            background: transparent;
+            border: none;
+            outline: none;
+            padding: 2px 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .minimal-stat-input-main:focus {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .minimal-stat-divider {
+            width: 100%;
+            border-top: 1px dashed rgba(255, 255, 255, 0.12);
+            margin: 6px 0;
+        }
+
+        .minimal-stat-subrow {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            gap: 4px;
+        }
+
+        .minimal-subfield {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 100%;
+        }
+
+        .minimal-subfield-lbl {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: lowercase;
+        }
+
+        .minimal-stat-input-sub {
+            width: 52px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--accent-gold);
+            background: rgba(241, 198, 68, 0.12);
+            border: 1px solid rgba(241, 198, 68, 0.35);
+            border-radius: 6px;
+            padding: 3px 4px;
+            outline: none;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .minimal-stat-input-sub:focus {
+            border-color: var(--accent-cyan);
+            background: rgba(85, 230, 211, 0.15);
+            color: var(--accent-cyan);
+        }
+
+        /* CODE BLOCK STYLING */
+        pre {
+            background: #080b12;
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: #e2e8f0;
+        }
+
+        /* RATING TABLE */
+        .rating-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+            font-size: 13px;
+        }
+
+        .rating-table th,
+        .rating-table td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-card);
+        }
+
+        .rating-table th {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .tag {
+            padding: 2px 8px;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .tag-excepcional {
+            background: rgba(97, 246, 164, 0.15);
+            color: #61f6a4;
+        }
+
+        .tag-excelente {
+            background: rgba(84, 231, 210, 0.15);
+            color: #54e7d2;
+        }
+
+        .tag-muitobom {
+            background: rgba(94, 215, 185, 0.15);
+            color: #5ed7b9;
+        }
+
+        .tag-bom {
+            background: rgba(105, 183, 255, 0.15);
+            color: #69b7ff;
+        }
+
+        .tag-mediano {
+            background: rgba(241, 198, 68, 0.15);
+            color: #f1c644;
+        }
+
+        .tag-fraco {
+            background: rgba(240, 90, 98, 0.15);
+            color: #f05a62;
+        }
+
+        /* ETIQUETAS DE QUALIDADE OFICIAIS (PIW) */
+        .tag-fraca { background: rgba(158, 158, 158, 0.15); color: #9e9e9e; }
+        .tag-comum { background: rgba(168, 168, 168, 0.15); color: #a8a8a8; }
+        .tag-incomum { background: rgba(94, 215, 185, 0.15); color: #5ed7b9; }
+        .tag-rara { background: rgba(105, 183, 255, 0.15); color: #69b7ff; }
+        .tag-epica { background: rgba(217, 133, 255, 0.15); color: #d985ff; }
+        .tag-lendaria { background: rgba(241, 198, 68, 0.15); color: #f1c644; }
+        .tag-mitica { background: rgba(255, 102, 128, 0.15); color: #ff6680; }
+        .tag-ancia { background: rgba(255, 152, 0, 0.15); color: #ff9800; }
+        .tag-divina { background: rgba(0, 188, 212, 0.15); color: #00bcd4; }
+
+        footer {
+            margin-top: 60px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-card);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- HEADER -->
+        <header>
+            <div class="hero-badge-container">
+                <span class="badge badge-red">UserScript 3.0</span>
+                <span class="badge badge-gold">Poké Idle World</span>
+                <span class="badge badge-cyan">IV Engine v3.0</span>
+            </div>
+
+            <div class="hero-title-group">
+                <div class="pokeball-logo"></div>
+                <div>
+                    <h1>JustPokédex</h1>
+                    <p class="hero-description">Documentação Oficial, Calculadora Interativa e Guia do Usuário</p>
+                </div>
+            </div>
+
+            <nav class="nav-bar">
+                <a href="#recursos" class="nav-btn active">✨ Recursos</a>
+                <a href="#formulas" class="nav-btn">📐 Fórmulas Matemáticas</a>
+                <a href="#classificacao" class="nav-btn">🏆 Tabela de Avaliação</a>
+                <a href="#instalacao" class="nav-btn">📥 Como Instalar</a>
+                <a href="#seguranca" class="nav-btn">🛡️ Segurança</a>
+            </nav>
+        </header>
+
+        <!-- RECURSOS -->
+        <section id="recursos">
+            <div class="section-header">
+                <h2>✨ Funcionalidades e Módulos Integrados</h2>
+                <div class="line"></div>
+            </div>
+
+            <div class="grid-3">
+                <div class="card card-gold-border">
+                    <div class="card-icon">🐭</div>
+                    <h3 class="card-title">Leitura por Hover em Tempo Real</h3>
+                    <p class="card-p">Captura instantânea de dados dos Pokémon ao passar o mouse sobre os itens do
+                        inventário ou Mercado Global via MutationObserver no <code>.inv-tip</code>.</p>
+                </div>
+
+                <div class="card card-gold-border">
+                    <div class="card-icon">✨</div>
+                    <h3 class="card-title">Suporte Total a Pokémon Shiny</h3>
+                    <p class="card-p">Sanitização inteligente de marcas Shiny e emojis (<code>✨</code>) para carregar
+                        sprites animados Gen V, tipos e status base da PokeAPI sem erros.</p>
+                </div>
+
+                <div class="card card-gold-border">
+                    <div class="card-icon">📌</div>
+                    <h3 class="card-title">Comparador Fixo de Pokémon</h3>
+                    <p class="card-p">Fixe um Pokémon base (📌) e compare em tempo real a diferença exata de cada IV
+                        (com setas ▲/▼), soma total, qualidade, poder e potencial % contra o Pokémon ativo.</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">⚔️</div>
+                    <h3 class="card-title">Painel de Golpe & Moveset</h3>
+                    <p class="card-p">Aba dedicada para visualização dos ataques e golpes aprendidos pelo Pokémon,
+                        integrando dados do jogo e da PokeAPI.</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">🔍</div>
+                    <h3 class="card-title">Filtro de Logs de Captura</h3>
+                    <p class="card-p">Filtra a janela de histórico de capturas (Clog Window) por Raridade (Comum,
+                        Incomum, Rara, <strong>Épica</strong>, Lendária) e IV total.</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">⚠️</div>
+                    <h3 class="card-title">Alerta de Nível Mínimo (&lt; Nv 15)</h3>
+                    <p class="card-p">Identifica automaticamente Pokémon de nível muito baixo e exibe alerta preventivo
+                        sobre margens de arredondamento nos status.</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">🌐</div>
+                    <h3 class="card-title">WebSocket Combat Proxy</h3>
+                    <p class="card-p">Intercepta mensagens de rede para monitorar dano real e calcular a matriz de
+                        efetividade elemental (Dá/Toma 4x, 2x, Imune).</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-icon">📊</div>
+                    <h3 class="card-title">Histórico & Cache Local</h3>
+                    <p class="card-p">Armazena análises recentes e respostas da API em <code>localStorage</code> para
+                        consultas instantâneas e sem atrasos de rede.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- FÓRMULAS MATEMÁTICAS -->
+        <section id="formulas">
+            <div class="section-header">
+                <h2>📐 Explicação Matemática Detalhada (v3.0)</h2>
+                <div class="line"></div>
+            </div>
+
+            <!-- CRÉDITOS DA FÓRMULA -->
+            <div
+                style="background: rgba(85, 230, 211, 0.06); border: 1px solid rgba(85, 230, 211, 0.25); border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 18px;">🤝</span>
+                <p style="margin: 0; font-size: 13px; color: #d0d7e3; line-height: 1.5;">
+                    <strong>Créditos & Agradecimentos:</strong> O calculo de IV do JustPokédex é baseada nas fórmulas da
+                    ferramenta <a href="https://piwtools.vercel.app/" target="_blank"
+                        style="color: var(--accent-cyan); font-weight: 700; text-decoration: underline;">PIW Tools</a>,
+                    desenvolvida com a colaboração e apoio do <strong>@bar</strong> (criador da ferramenta).
+                </p>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <h3 class="card-title">1. Equação Direta de Atributo</h3>
+                    <p class="card-p">Calcula o valor do atributo final exibido no jogo a partir dos atributos base,
+                        nível, qualidade e IV (growth):</p>
+
+                    <div class="formula-box">
+                        <div class="formula-main">S = round( (B + 2 × IV) × (L / 100) × Qᵉ )</div>
+                    </div>
+
+                    <div class="formula-breakdown">
+                        <div class="formula-item"><strong>S (Stat)</strong><span>Atributo final exibido</span></div>
+                        <div class="formula-item"><strong>B (Base Stat)</strong><span>Status base da PokeAPI</span>
+                        </div>
+                        <div class="formula-item"><strong>IV</strong><span>Por atributo (0 a 32) | Total dos 6 atributos: (0 a 192)</span></div>
+                        <div class="formula-item"><strong>L (Level)</strong><span>Nível do Pokémon</span></div>
+                        <div class="formula-item"><strong>Q (Quality)</strong><span>Multiplicador de Raridade</span>
+                        </div>
+                        <div class="formula-item"><strong>e (Expoente)</strong><span>HP/Vel: 0.95 | Outros: 0.80</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">2. Inversão por Regressão Float &amp; Ceil</h3>
+                    <p class="card-p">O script inverte a equação para obter o valor float exato de cada IV e aplica a
+                        soma truncada oficial:</p>
+
+                    <div class="formula-box">
+                        <div class="formula-main">Fator (F) = (L / 100) × Qᵉ</div>
+                        <div style="font-size: 16px; color: var(--accent-cyan); margin-top: 8px;">IV_float = [ (S / F) -
+                            B ] / 2</div>
+                        <div style="font-size: 14px; color: var(--accent-gold); margin-top: 6px;">IV_Total = Math.ceil(
+                            ∑ IV_float )</div>
+                    </div>
+
+                    <p class="card-p" style="font-size: 12px; margin-top: 10px;">
+                        <strong>Poder Oficial:</strong> <code>Power = (Soma dos 6 Stats) × Qualidade</code>.<br>
+                        A Qualidade multiplica cada atributo e também o Poder final. O IV mede a perfeição de nascimento
+                        da espécie (0 a 192).
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- CLASSIFICAÇÃO & ETIQUETAS -->
+        <section id="classificacao">
+            <div class="section-header">
+                <h2>🏆 Tabela de Avaliação e Etiquetas Oficiais</h2>
+                <div class="line"></div>
+            </div>
+
+            <div class="grid-2">
+                <!-- AVALIAÇÃO DE POTENCIAL IV -->
+                <div class="card">
+                    <h3 class="card-title" style="font-size: 16px; margin-bottom: 14px; color: var(--accent-cyan);">📊 Avaliação por Potencial de IV (%)</h3>
+                    <table class="rating-table">
+                        <thead>
+                            <tr>
+                                <th>Faixa (%)</th>
+                                <th>Classificação</th>
+                                <th>Descrição Técnica</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>95% – 100%</strong></td>
+                                <td><span class="tag tag-excepcional">Excepcional</span></td>
+                                <td>Exemplar extremamente próximo da perfeição máxima.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>85% – 94.9%</strong></td>
+                                <td><span class="tag tag-excelente">Excelente</span></td>
+                                <td>Ótimos atributos e excelente eficiência geral.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>72% – 84.9%</strong></td>
+                                <td><span class="tag tag-muitobom">Muito Bom</span></td>
+                                <td>Pokémon forte, bem acima da média selvagem.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>58% – 71.9%</strong></td>
+                                <td><span class="tag tag-bom">Bom</span></td>
+                                <td>Bom equilíbrio de atributos para uso geral.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>42% – 57.9%</strong></td>
+                                <td><span class="tag tag-mediano">Mediano</span></td>
+                                <td>Possui atributos razoáveis.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>0% – 41.9%</strong></td>
+                                <td><span class="tag tag-fraco">Fraco</span></td>
+                                <td>Baixo potencial geral em comparação ao máximo.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ETIQUETAS OFICIAIS DE QUALIDADE -->
+                <div class="card">
+                    <h3 class="card-title" style="font-size: 16px; margin-bottom: 14px; color: var(--accent-gold);">🏷️ Etiquetas Oficiais de Qualidade (Game System)</h3>
+                    <table class="rating-table">
+                        <thead>
+                            <tr>
+                                <th>Qualidade</th>
+                                <th>Etiqueta Oficial</th>
+                                <th>Origem / Condição</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>&lt; 1.0</strong></td>
+                                <td><span class="tag tag-fraca">Fraca</span></td>
+                                <td>Captura Selvagem</td>
+                            </tr>
+                            <tr>
+                                <td><strong>1.0 – 1.1</strong></td>
+                                <td><span class="tag tag-comum">Comum</span></td>
+                                <td>Captura Selvagem</td>
+                            </tr>
+                            <tr>
+                                <td><strong>1.1 – 1.3</strong></td>
+                                <td><span class="tag tag-incomum">Incomum</span></td>
+                                <td>Captura Selvagem</td>
+                            </tr>
+                            <tr>
+                                <td><strong>1.3 – 1.5</strong></td>
+                                <td><span class="tag tag-rara">Rara</span></td>
+                                <td>Captura Selvagem</td>
+                            </tr>
+                            <tr>
+                                <td><strong>1.5 – 1.7</strong></td>
+                                <td><span class="tag tag-epica">Épica</span></td>
+                                <td>Captura Selvagem</td>
+                            </tr>
+                            <tr>
+                                <td><strong>1.7 – 2.0</strong></td>
+                                <td><span class="tag tag-lendaria">Lendária</span></td>
+                                <td>Captura Rara (Teto Selvagem 1.80)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>2.0 – 3.0</strong></td>
+                                <td><span class="tag tag-mitica">Mítica</span></td>
+                                <td>Breeding / Shinies / Eventos</td>
+                            </tr>
+                            <tr>
+                                <td><strong>3.0 – 4.0</strong></td>
+                                <td><span class="tag tag-ancia">Anciã</span></td>
+                                <td>Breeding / Shinies</td>
+                            </tr>
+                            <tr>
+                                <td><strong>4.0+</strong></td>
+                                <td><span class="tag tag-divina">Divina</span></td>
+                                <td>Breeding / Shinies</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p style="font-size: 11px; color: var(--text-muted); margin-top: 12px; line-height: 1.4;">
+                        💡 <strong>Nota Oficial:</strong> Os tiers <em>Mítica, Anciã e Divina</em> (qualidade 2.0+) <strong>NÃO</strong> saem em capturas selvagens normais (teto 1.8) — são alcançados via Breeding, Shinies e Eventos.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- INSTALAÇÃO -->
+        <section id="instalacao">
+            <div class="section-header">
+                <h2>📥 Guia de Instalação Rápida</h2>
+                <div class="line"></div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <h3 class="card-title">Passo 1: Instale a Extensão</h3>
+                    <p class="card-p">Instale um gerenciador de UserScripts no seu navegador Chromium ou Firefox:</p>
+                    <ul
+                        style="margin-left: 20px; color: var(--text-muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px;">
+                        <li><strong style="color: #fff;">Tampermonkey</strong> (Recomendado para Chrome/Edge/Brave)</li>
+                        <li><strong style="color: #fff;">Violentmonkey</strong> (Opção open-source)</li>
+                    </ul>
+                </div>
+
+                <div class="card">
+                    <h3 class="card-title">Passo 2: Adicione o Código</h3>
+                    <p class="card-p">Crie um novo script na extensão e cole o conteúdo do script oficial obtido direto
+                        do <a href="https://gist.github.com/guilherme-se/467be7a7f64d13a8980a172886091362"
+                            target="_blank" style="color: var(--accent-cyan); font-weight: 700;">GitHub Gist
+                            Oficial</a>.</p>
+                    <p class="card-p">Acesse <a href="https://poke.idleworld.online/" target="_blank"
+                            style="color: var(--accent-cyan);">poke.idleworld.online</a> e aproveite!</p>
+
+                    <div style="margin-top: 14px; padding: 10px 14px; background: rgba(241, 198, 68, 0.08); border: 1px solid rgba(241, 198, 68, 0.3); border-radius: 10px; font-size: 13px;">
+                        🎥 <strong>Precisa de ajuda na instalação?</strong><br>
+                        <span style="color: var(--text-muted); font-size: 12px;">Se tiver qualquer dúvida ou dificuldade, assista ao tutorial em vídeo passo a passo: </span>
+                        <a href="https://www.loom.com/share/cc6d34c8522b451abfe601bcf66e5657" target="_blank" style="color: var(--accent-gold); font-weight: 800; text-decoration: underline; white-space: nowrap;">▶ Ver Vídeo Tutorial no Loom</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SEGURANÇA E TRANSPARÊNCIA (ATENÇÃO) -->
+        <section id="seguranca" style="margin-top: 40px;">
+            <div class="card"
+                style="background: linear-gradient(145deg, rgba(240, 90, 98, 0.08) 0%, rgba(16, 22, 34, 0.95) 100%); border: 1px solid rgba(240, 90, 98, 0.35); border-left: 6px solid #f05a62; padding: 26px;">
+                <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px;">
+                    <div
+                        style="background: rgba(240, 90, 98, 0.2); border: 1px solid rgba(240, 90, 98, 0.4); border-radius: 12px; width: 44px; height: 44px; display: grid; place-items: center; font-size: 22px;">
+                        🛡️</div>
+                    <div>
+                        <h3 class="card-title" style="color: #ff6e75; margin: 0; font-size: 20px;">ATENÇÃO:
+                            Transparência & Segurança do Código</h3>
+                        <p style="color: var(--text-muted); font-size: 12px; margin: 2px 0 0 0;">Sua segurança é nossa
+                            prioridade absoluta.</p>
+                    </div>
+                </div>
+
+                <p class="card-p" style="font-size: 14px; line-height: 1.6; color: #d0d7e3; margin-bottom: 20px;">
+                    É totalmente compreensível ter receio de instalar scripts ou extensões no navegador. Para garantir
+                    sua total tranquilidade, explicamos abaixo exatamente como o <strong>JustPokédex</strong> funciona
+                    por dentro e como auditá-lo:
+                </p>
+
+                <!-- BANNER ALERTA DO LINK OFICIAL GITHUB GIST -->
+                <div
+                    style="background: rgba(241, 198, 68, 0.08); border: 1px solid rgba(241, 198, 68, 0.4); border-radius: 14px; padding: 18px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 20px;">⚠️</span>
+                        <h4
+                            style="color: var(--accent-gold); font-size: 15px; margin: 0; font-weight: 800; text-transform: uppercase;">
+                            ÚNICO LINK OFICIAL E SEGURO DO PROJETO</h4>
+                    </div>
+                    <p style="color: #f0f4f9; font-size: 13px; line-height: 1.5; margin: 0 0 12px 0;">
+                        <strong>Nunca baixe ou instale arquivos de código enviados por terceiros</strong> no Discord,
+                        WhatsApp ou redes sociais! Arquivos repassados por outras pessoas podem ter sofrido alterações
+                        maliciosas de código. O <strong>único repositório oficial e verificado</strong> do JustPokédex é
+                        mantido no GitHub Gist:
+                    </p>
+                    <div
+                        style="background: rgba(0,0,0,0.45); padding: 12px 16px; border-radius: 10px; border: 1px dashed rgba(241, 198, 68, 0.5); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                        <code
+                            style="color: var(--accent-cyan); font-size: 13px; word-break: break-all; font-weight: 700;">https://gist.github.com/guilherme-se/467be7a7f64d13a8980a172886091362</code>
+                        <a href="https://gist.github.com/guilherme-se/467be7a7f64d13a8980a172886091362" target="_blank"
+                            style="background: var(--accent-gold); color: #0a0d14; padding: 8px 16px; border-radius: 8px; font-weight: 900; font-size: 12px; text-decoration: none; white-space: nowrap; box-shadow: 0 0 15px rgba(241, 198, 68, 0.3);">🔗
+                            Acessar Gist Oficial</a>
+                    </div>
+                </div>
+
+                <div class="grid-3" style="gap: 16px;">
+                    <div
+                        style="background: rgba(0, 0, 0, 0.3); padding: 18px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06);">
+                        <h4
+                            style="color: var(--accent-cyan); font-size: 14px; margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px;">
+                            <span>💻</span> Por que o Tampermonkey?
+                        </h4>
+                        <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
+                            Gerenciadores como <strong>Tampermonkey</strong> e <strong>Violentmonkey</strong> dão
+                            controle total ao usuário. Em vez de instalar um aplicativo fechado, você insere um script
+                            legível direto no navegador, podendo inspecionar o código a qualquer momento.
+                        </p>
+                    </div>
+
+                    <div
+                        style="background: rgba(0, 0, 0, 0.3); padding: 18px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06);">
+                        <h4
+                            style="color: #61f6a4; font-size: 14px; margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px;">
+                            <span>🔒</span> Execução 100% Local
+                        </h4>
+                        <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
+                            O script roda <strong>100% no seu navegador (Client-Side)</strong>. Ele apenas lê a tela do
+                            jogo e os dados de combate para calcular IVs. <strong>Nenhuma senha, token ou credencial é
+                                salva ou enviada para servidores externos.</strong>
+                        </p>
+                    </div>
+
+                    <div
+                        style="background: rgba(0, 0, 0, 0.3); padding: 18px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06);">
+                        <h4
+                            style="color: var(--accent-gold); font-size: 14px; margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px;">
+                            <span>🔍</span> Audite com IA ou Devs
+                        </h4>
+                        <p style="color: var(--text-muted); font-size: 12.5px; line-height: 1.5; margin: 0;">
+                            Por ser <strong>100% Open-Source</strong>, incentivamos que você copie o código do Gist
+                            oficial e jogue em IAs como <em>ChatGPT, Claude ou Gemini</em>, ou peça para um
+                            desenvolvedor amigo auditar o script antes de instalar!
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FOOTER -->
+        <footer>
+            <p>JustPokédex UserScript — Desenvolvido para Poké Idle World © 2026</p>
+        </footer>
+    </div>
+
+    <!-- SCRIPT DA SIMULAÇÃO INTERATIVA -->
+    <script>
+        const POKEMON_AUTOCOMPLETE_LIST = [
+            "Bulbasaur", "Ivysaur", "Venusaur", "Charmander", "Charmeleon", "Charizard",
+            "Squirtle", "Wartortle", "Blastoise", "Caterpie", "Metapod", "Butterfree",
+            "Weedle", "Kakuna", "Beedrill", "Pidgey", "Pidgeotto", "Pidgeot",
+            "Rattata", "Raticate", "Spearow", "Fearow", "Ekans", "Arbok",
+            "Pikachu", "Raichu", "Sandshrew", "Sandslash", "Nidoran Male", "Nidoran Female",
+            "Nidorino", "Nidoking", "Nidorina", "Nidoqueen", "Clefairy", "Clefable",
+            "Vulpix", "Ninetales", "Jigglypuff", "Wigglytuff", "Zubat", "Golbat",
+            "Oddish", "Gloom", "Vileplume", "Paras", "Parasect", "Venonat", "Venomoth",
+            "Diglett", "Dugtrio", "Meowth", "Persian", "Psyduck", "Golduck",
+            "Mankey", "Primeape", "Growlithe", "Arcanine", "Poliwag", "Poliwhirl", "Poliwrath",
+            "Abra", "Kadabra", "Alakazam", "Machop", "Machoke", "Machamp",
+            "Bellsprout", "Weepinbell", "Victreebel", "Tentacool", "Tentacruel",
+            "Geodude", "Graveler", "Golem", "Ponyta", "Rapidash", "Slowpoke", "Slowbro",
+            "Magnemite", "Magneton", "Farfetchd", "Doduo", "Dodrio", "Seel", "Dewgong",
+            "Grimer", "Muk", "Shellder", "Cloyster", "Gastly", "Haunter", "Gengar",
+            "Onix", "Drowzee", "Hypno", "Krabby", "Kingler", "Voltorb", "Electrode",
+            "Exeggcute", "Exeggutor", "Cubone", "Marowak", "Hitmonlee", "Hitmonchan",
+            "Lickitung", "Koffing", "Weezing", "Rhyhorn", "Rhydon", "Chansey",
+            "Tangela", "Kangaskhan", "Horsea", "Seadra", "Goldeen", "Seaking",
+            "Staryu", "Starmie", "Mr Mime", "Scyther", "Jynx", "Electabuzz", "Magmar",
+            "Pinsir", "Tauros", "Magikarp", "Gyarados", "Lapras", "Ditto", "Eevee",
+            "Vaporeon", "Jolteon", "Flareon", "Porygon", "Omanyte", "Omastar",
+            "Kabuto", "Kabutops", "Aerodactyl", "Snorlax", "Articuno", "Zapdos", "Moltres",
+            "Dratini", "Dragonair", "Dragonite", "Mewtwo", "Mew",
+            "Chikorita", "Bayleef", "Meganium", "Cyndaquil", "Quilava", "Typhlosion",
+            "Totodile", "Croconaw", "Feraligatr", "Crobat", "Pichu", "Togepi", "Togetic",
+            "Ampharos", "Bellossom", "Azumarill", "Sudowoodo", "Politoed", "Espeon", "Umbreon",
+            "Slowking", "Unown", "Wobbuffet", "Girafarig", "Steelix", "Scizor", "Shuckle",
+            "Heracross", "Sneasel", "Ursaring", "Magcargo", "Piloswine", "Corsola",
+            "Octillery", "Kingdra", "Donphan", "Porygon2", "Smeargle", "Tyrogue", "Hitmontop",
+            "Elekid", "Magby", "Miltank", "Blissey", "Raikou", "Entei", "Suicune",
+            "Larvitar", "Pupitar", "Tyranitar", "Lugia", "Ho-Oh", "Celebi",
+            "Treecko", "Grovyle", "Sceptile", "Torchic", "Combusken", "Blaziken",
+            "Mudkip", "Marshtomp", "Swampert", "Gardevoir", "Slaking", "Ninjask", "Shedinja",
+            "Exploud", "Hariyama", "Aggron", "Flygon", "Altaria", "Milotic", "Castform",
+            "Kecleon", "Banette", "Duskull", "Dusclops", "Absol", "Glalie", "Walrein",
+            "Salamence", "Metagross", "Regirock", "Regice", "Registeel", "Latias", "Latios",
+            "Kyogre", "Groudon", "Rayquaza", "Jirachi", "Deoxys",
+            "Turtwig", "Grotle", "Torterra", "Chimchar", "Monferno", "Infernape",
+            "Piplup", "Prinplup", "Empoleon", "Staraptor", "Luxray", "Roserade",
+            "Rampardos", "Bastiodon", "Vespiquen", "Pachirisu", "Buizel", "Floatzel",
+            "Gastrodon", "Ambipom", "Drifblim", "Lopunny", "Mismagius", "Honchkrow",
+            "Glameow", "Purugly", "Chingling", "Stunky", "Skuntank", "Bronzong", "Bonsly",
+            "Mime Jr", "Happiny", "Chatot", "Spiritomb", "Gible", "Gabite", "Garchomp",
+            "Munchlax", "Riolu", "Lucario", "Hippowdon", "Drapion", "Toxicroak", "Carnivine",
+            "Lumineon", "Mantyke", "Abomasnow", "Weavile", "Magnezone", "Lickilicky",
+            "Rhyperior", "Tangrowth", "Electivire", "Magmortar", "Togekiss", "Yanmega",
+            "Leafeon", "Glaceon", "Gliscor", "Mamoswine", "Porygon-Z", "Gallade", "Probopass",
+            "Dusknoir", "Froslass", "Rotom", "Uxie", "Mesprit", "Azelf", "Dialga", "Palkia",
+            "Heatran", "Regigigas", "Giratina", "Cresselia", "Phione", "Manaphy", "Darkrai",
+            "Shaymin", "Arceus", "Victini", "Snivy", "Tepig", "Oshawott", "Zoroark",
+            "Reshiram", "Zekrom", "Kyurem", "Keldeo", "Meloetta", "Genesect",
+            "Chespin", "Fennekin", "Froakie", "Greninja", "Talonflame", "Aegislash",
+            "Sylveon", "Xerneas", "Yveltal", "Zygarde", "Diancie", "Hoopa", "Volcanion",
+            "Rowlet", "Litten", "Popplio", "Decidueye", "Lycanroc", "Toxapex", "Mimikyu",
+            "Solgaleo", "Lunala", "Nihilego", "Buzzwole", "Pheromosa", "Xurkitree", "Celesteela",
+            "Kartana", "Guzzlord", "Necrozma", "Magearna", "Marshadow", "Zeraora", "Meltan", "Melmetal",
+            "Grookey", "Scorbunny", "Sobble", "Corviknight", "Toxtricity", "Dragapult",
+            "Zacian", "Zamazenta", "Eternatus", "Urshifu", "Zarude", "Calyrex",
+            "Sprigatito", "Fuecoco", "Quaxly", "Armarouge", "Ceruledge", "Tinkaton", "Koraidon", "Miraidon"
+        ];
+
+        const EXPOENTES = { hp: 0.95, atk: 0.80, def: 0.80, spa: 0.80, spd: 0.80, vel: 0.95 };
+
+        function inicializarDatalist() {
+            const dl = document.getElementById("pokemons-list");
+            if (!dl) return;
+            dl.innerHTML = POKEMON_AUTOCOMPLETE_LIST.map(p => `<option value="${p}">`).join("");
+        }
+
+        let debounceTimeout = null;
+        function aoDigitarBusca(valor) {
+            if (!valor) return;
+            clearTimeout(debounceTimeout);
+            debounceTimeout = setTimeout(() => {
+                const match = POKEMON_AUTOCOMPLETE_LIST.find(p => p.toLowerCase() === valor.trim().toLowerCase());
+                if (match) {
+                    buscarPokemonPokeAPI();
+                }
+            }, 300);
+        }
+
+        async function buscarPokemonPokeAPI() {
+            const input = document.getElementById("sim-search-input");
+            const statusEl = document.getElementById("sim-search-status");
+            if (!input || !input.value.trim()) return;
+
+            const nomeLimpo = input.value
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "")
+                .replace(/\bshiny\b/g, "")
+                .replace(/shiny/g, "")
+                .replace(/\bnidoran\s*male\b|\bnidoran\s*m\b/g, "nidoran-m")
+                .replace(/\bnidoran\s*female\b|\bnidoran\s*f\b/g, "nidoran-f")
+                .replace(/[^a-z0-9\s-]/g, "")
+                .trim()
+                .replace(/\s+/g, "-");
+
+            if (!nomeLimpo) return;
+
+            if (statusEl) {
+                statusEl.style.display = "block";
+                statusEl.style.color = "#55e6d3";
+                statusEl.textContent = `🔎 Buscando "${nomeLimpo}" na PokeAPI...`;
+            }
+
+            try {
+                let res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(nomeLimpo)}`);
+                if (!res.ok && nomeLimpo.includes("-")) {
+                    const base = nomeLimpo.split("-")[0];
+                    res = await fetch(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(base)}`);
+                }
+
+                if (!res.ok) throw new Error("Pokémon não encontrado na PokeAPI.");
+
+                const data = await res.json();
+                const map = {};
+                for (const item of data.stats || []) {
+                    map[item.stat.name] = item.base_stat;
+                }
+
+                document.getElementById("sim-base-hp").value = map.hp ?? 0;
+                document.getElementById("sim-base-atk").value = map.attack ?? 0;
+                document.getElementById("sim-base-def").value = map.defense ?? 0;
+                document.getElementById("sim-base-spa").value = map["special-attack"] ?? 0;
+                document.getElementById("sim-base-spd").value = map["special-defense"] ?? 0;
+                document.getElementById("sim-base-vel").value = map.speed ?? 0;
+
+                if (statusEl) {
+                    statusEl.style.color = "#61f6a4";
+                    statusEl.textContent = `✓ Dados-base de ${data.name.toUpperCase()} (#${data.id}) carregados com sucesso!`;
+                }
+
+                recalcularSimulacao("base");
+            } catch (err) {
+                if (statusEl) {
+                    statusEl.style.color = "#f05a62";
+                    statusEl.textContent = `❌ ${err.message}`;
+                }
+            }
+        }
+
+        function estimarIVFloat(atual, base, nivel, qualidade, expoente) {
+            const fator = (nivel / 100) * Math.pow(qualidade, expoente);
+            if (!fator || fator <= 0) return 0;
+            const iv = (((atual / fator) - base) / 2);
+            return Math.min(32, Math.max(0, iv));
+        }
+
+        function calcularStatFinal(base, iv, nivel, qualidade, expoente) {
+            const fator = (nivel / 100) * Math.pow(qualidade, expoente);
+            return Math.round((base + 2 * iv) * fator);
+        }
+
+        function onGlobalInput(type) {
+            const ivGlobal = document.getElementById("sim-iv-global")?.value;
+            if (ivGlobal !== "" && !isNaN(ivGlobal)) {
+                recalcularSimulacao("ivGlobal");
+            } else {
+                recalcularSimulacao("stat");
+            }
+        }
+
+        function onGlobalIVInput(val) {
+            if (val !== "" && !isNaN(val)) {
+                recalcularSimulacao("ivGlobal");
+            } else {
+                recalcularSimulacao("stat");
+            }
+        }
+
+        function onStatInput(statKey) {
+            recalcularSimulacao("stat", statKey);
+        }
+
+        function onBaseInput(statKey) {
+            const ivGlobal = document.getElementById("sim-iv-global")?.value;
+            if (ivGlobal !== "" && !isNaN(ivGlobal)) {
+                recalcularSimulacao("ivGlobal");
+            } else {
+                recalcularSimulacao("stat", statKey);
+            }
+        }
+
+        function recalcularSimulacao(origem = "stat", statFoco = null) {
+            const nivel = Number(document.getElementById("sim-nivel").value) || 50;
+            const qualidade = Number(document.getElementById("sim-qualidade").value) || 1.7;
+            const ivGlobalInput = document.getElementById("sim-iv-global")?.value;
+            const ivGlobal = (ivGlobalInput !== "" && !isNaN(ivGlobalInput)) ? Number(ivGlobalInput) : 32;
+
+            const warnEl = document.getElementById("sim-nivel-warning");
+            if (warnEl) {
+                warnEl.style.display = nivel < 15 ? "block" : "none";
+            }
+
+            const keys = ["hp", "atk", "def", "spa", "spd", "vel"];
+            const bases = {};
+            const stats = {};
+            const ivsFloat = {};
+
+            let somaFloatExact = 0;
+
+            for (const k of keys) {
+                bases[k] = Number(document.getElementById(`sim-base-${k}`)?.value) || 0;
+
+                if (origem === "ivGlobal" || origem === "base") {
+                    // Quando busca um Pokémon ou altera o IV Global -> calcula Stat Final para todas as 6 stats
+                    const ivVal = Math.min(32, Math.max(0, ivGlobal));
+                    stats[k] = calcularStatFinal(bases[k], ivVal, nivel, qualidade, EXPOENTES[k]);
+                    const statEl = document.getElementById(`sim-${k}`);
+                    if (statEl) statEl.value = stats[k];
+                    ivsFloat[k] = ivVal;
+                } else {
+                    // Usuário digitou Stat Final diretamente no card -> calcula o IV
+                    stats[k] = Number(document.getElementById(`sim-${k}`)?.value) || 0;
+                    ivsFloat[k] = estimarIVFloat(stats[k], bases[k], nivel, qualidade, EXPOENTES[k]);
+                }
+
+                somaFloatExact += ivsFloat[k];
+
+                const barEl = document.getElementById(`bar-${k}`);
+                const valEl = document.getElementById(`val-${k}`);
+                if (barEl && valEl) {
+                    barEl.style.width = `${(ivsFloat[k] / 32) * 100}%`;
+                    valEl.textContent = ivsFloat[k].toFixed(1);
+                }
+            }
+
+            // IV Total oficial truncado (Math.ceil da soma dos decimais brutos)
+            const ivTotalCeil = Math.ceil(somaFloatExact);
+            const potencial = Math.min(100, Math.max(0, Math.round((somaFloatExact / 192) * 100)));
+            const poderOficial = Math.round((stats.hp + stats.atk + stats.def + stats.spa + stats.spd + stats.vel) * qualidade);
+
+            document.getElementById("gauge-circle").style.setProperty("--score", potencial);
+            document.getElementById("res-potencial").textContent = `${potencial}%`;
+            document.getElementById("res-iv-total").textContent = `${ivTotalCeil} / 192 (Poder: ${poderOficial.toLocaleString('pt-BR')})`;
+
+            const classEl = document.getElementById("res-classificacao");
+            const descEl = document.getElementById("res-descricao");
+
+            if (potencial >= 95) {
+                classEl.textContent = "Excepcional"; classEl.style.color = "#61f6a4";
+                descEl.textContent = "Um exemplar extremamente próximo do potencial máximo.";
+            } else if (potencial >= 85) {
+                classEl.textContent = "Excelente"; classEl.style.color = "#54e7d2";
+                descEl.textContent = "Ótimos atributos e excelente eficiência geral.";
+            } else if (potencial >= 72) {
+                classEl.textContent = "Muito Bom"; classEl.style.color = "#5ed7b9";
+                descEl.textContent = "Um Pokémon forte e bem acima da média.";
+            } else if (potencial >= 58) {
+                classEl.textContent = "Bom"; classEl.style.color = "#69b7ff";
+                descEl.textContent = "Bom equilíbrio de atributos para uso geral.";
+            } else if (potencial >= 42) {
+                classEl.textContent = "Mediano"; classEl.style.color = "#f1c644";
+                descEl.textContent = "Possui atributos razoáveis, mas pode ser melhorado.";
+            } else {
+                classEl.textContent = "Fraco"; classEl.style.color = "#f05a62";
+                descEl.textContent = "Baixo potencial geral em comparação ao máximo possível.";
+            }
+        }
+
+        // Inicializa
+        inicializarDatalist();
+        recalcularSimulacao("stat");
+    </script>
+</body>
+
+</html>
