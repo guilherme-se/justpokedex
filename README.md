@@ -28,7 +28,9 @@
 | 📊 | **Cálculo de IV & Potencial** | Estima IVs exatos de $0$ a $32$ por atributo ($0$ a $192$ no total) e calcula o **Potencial do Exemplar** ($0\%$ a $100\%$). |
 | ⚠️ | **Alerta de Nível Mínimo** | Alerta automaticamente quando o Pokémon está abaixo do Nv. 15 devido a margens de arredondamento. |
 | 🛡️ | **Efetividade de Tipos** | Matriz automática de fraquezas e vantagens de ataque ($2x, 4x$) e defesa (fraquezas e imunidades). |
-| ⚖️ | **Comparador de Pokémon** | Fixe um Pokémon referência (📌) para comparar diferenças exatas de status e IVs contra outros. |
+| 🚀 | **Atalho PIW Tools (Rota)** `✨ NOVO` | Botão na aba Pokémon que abre o simulador do **PIW Tools** (`_blank`) com status, nível e nome auto-preenchidos via GET. |
+| 🎁 | **Lembrete de Resgate Diário (24h)** `✨ NOVO` | Monitora a coleta do Daily Gift (`button.dg-resgatar`) e exibe contagem regressiva de 24h exatas a partir do momento da coleta. |
+| ✨ | **Detector & Contador Shiny (WebSocket)** `✨ NOVO` | Intercepta pacotes do mapa em tempo real via WebSocket, exibe alertas instantâneos ao detectar `"shiny": true` e mantém um contador persistente com botão de zerar (`🔄`). |
 | 📊 | **Histórico & Cache Local** | Armazena análises recentes e respostas da API em `localStorage` para consultas instantâneas. |
 
 ---

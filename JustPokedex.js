@@ -30,6 +30,123 @@
         }
     };
 
+    const SHINY_COUNTER_KEY = "justpokedex-shiny-counter";
+    let contadorShinies = 0;
+    let shinyDetectadoNoMapa = false;
+    let tempoUltimoShiny = 0;
+    let tempoUltimoIncrementoShiny = 0;
+
+    let shinyDetectorEnabled = true;
+    let dailyGiftEnabled = true;
+
+    try {
+        const salvoCount = localStorage.getItem(SHINY_COUNTER_KEY);
+        if (salvoCount) {
+            contadorShinies = parseInt(salvoCount, 10) || 0;
+        }
+        const shinySalvo = localStorage.getItem("justpokedex-shiny-enabled");
+        if (shinySalvo !== null) {
+            shinyDetectorEnabled = shinySalvo === "true";
+        }
+        const dailySalvo = localStorage.getItem("justpokedex-daily-enabled");
+        if (dailySalvo !== null) {
+            dailyGiftEnabled = dailySalvo === "true";
+        }
+    } catch (e) { }
+
+    function atualizarBotoesTopBanners() {
+        const btnShiny = document.getElementById("toggle-shiny");
+        const btnDaily = document.getElementById("toggle-daily");
+        const gridBanners = document.querySelector(".top-banners-grid");
+        const bannerShiny = document.getElementById("shiny-detector-banner");
+        const bannerDaily = document.getElementById("daily-gift-banner");
+
+        if (btnShiny) {
+            btnShiny.style.opacity = shinyDetectorEnabled ? "1" : "0.4";
+            btnShiny.title = shinyDetectorEnabled ? "Detector de Shiny: ATIVADO (Clique para Ocultar/Desativar)" : "Detector de Shiny: DESATIVADO (Clique para Exibir/Ativar)";
+        }
+
+        if (btnDaily) {
+            btnDaily.style.opacity = dailyGiftEnabled ? "1" : "0.4";
+            btnDaily.title = dailyGiftEnabled ? "Resgate Diário: ATIVADO (Clique para Ocultar/Desativar)" : "Resgate Diário: DESATIVADO (Clique para Exibir/Ativar)";
+        }
+
+        if (bannerShiny) {
+            bannerShiny.style.display = shinyDetectorEnabled ? "flex" : "none";
+        }
+        if (bannerDaily) {
+            bannerDaily.style.display = dailyGiftEnabled ? "flex" : "none";
+        }
+
+        if (gridBanners) {
+            if (shinyDetectorEnabled && dailyGiftEnabled) {
+                gridBanners.style.display = "grid";
+                gridBanners.style.gridTemplateColumns = "1fr 1fr";
+                if (bannerShiny) bannerShiny.style.borderRight = "1px solid rgba(255,255,255,0.08)";
+            } else if (shinyDetectorEnabled || dailyGiftEnabled) {
+                gridBanners.style.display = "grid";
+                gridBanners.style.gridTemplateColumns = "1fr";
+                if (bannerShiny) bannerShiny.style.borderRight = "none";
+            } else {
+                gridBanners.style.display = "none";
+            }
+        }
+    }
+
+    function incrementarContadorShiny() {
+        const agora = Date.now();
+        // Debounce de 15 segundos para evitar contar pacotes repetidos do mesmo Shiny
+        if (agora - tempoUltimoIncrementoShiny > 15000) {
+            contadorShinies++;
+            tempoUltimoIncrementoShiny = agora;
+            try {
+                localStorage.setItem(SHINY_COUNTER_KEY, String(contadorShinies));
+            } catch (e) { }
+        }
+    }
+
+    function zerarContadorShiny() {
+        contadorShinies = 0;
+        try {
+            localStorage.setItem(SHINY_COUNTER_KEY, "0");
+        } catch (e) { }
+        atualizarBannerDetectorShiny();
+    }
+
+    (function interceptarWebSocketShiny() {
+        const OriginalWebSocket = window.WebSocket;
+        if (!OriginalWebSocket) return;
+
+        function ProxyWebSocket(...args) {
+            const ws = new OriginalWebSocket(...args);
+
+            ws.addEventListener("message", (evento) => {
+                try {
+                    if (typeof evento.data === "string") {
+                        if (evento.data.includes('"shiny":true') || evento.data.includes('"shiny": true')) {
+                            shinyDetectadoNoMapa = true;
+                            tempoUltimoShiny = Date.now();
+                            incrementarContadorShiny();
+                            if (typeof atualizarBannerDetectorShiny === "function") {
+                                atualizarBannerDetectorShiny();
+                            }
+                        }
+                    }
+                } catch (e) { }
+            });
+
+            return ws;
+        }
+
+        ProxyWebSocket.prototype = OriginalWebSocket.prototype;
+        ProxyWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+        ProxyWebSocket.OPEN = OriginalWebSocket.OPEN;
+        ProxyWebSocket.CLOSING = OriginalWebSocket.CLOSING;
+        ProxyWebSocket.CLOSED = OriginalWebSocket.CLOSED;
+
+        window.WebSocket = ProxyWebSocket;
+    })();
+
     const NOMES_STATS = {
         hp: "HP",
         atk: "Ataque",
@@ -272,7 +389,7 @@
     function typeBadgeHtml(tipoEng) {
         const cor = TYPE_SYSTEM.COLORS[tipoEng] || "#888";
         const nomePt = TYPE_SYSTEM.TRADUCOES[tipoEng] || tipoEng;
-        return `<span class="type-badge" style="background:${cor}">${escapeHtml(nomePt)}</span>`;
+        return `<span class="type-badge" style="background:${cor}; color:#fff; font-size:9.5px; font-weight:bold; padding:2px 6px; border-radius:10px; display:inline-block; line-height:1.2; text-shadow:0 1px 2px rgba(0,0,0,0.6);">${escapeHtml(nomePt)}</span>`;
     }
 
     function obterEfetividadeHtml(pokemon) {
@@ -305,9 +422,9 @@
         const criarLinhaEfetividade = (icone, rotulo, lista, corTexto) => {
             if (lista.length === 0) return "";
             return `
-                <div class="eff-row" style="display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 11px;">
-                    <span class="eff-label" style="color:${corTexto}; font-weight: bold; width: 75px; flex-shrink: 0;">${icone} ${escapeHtml(rotulo)}</span>
-                    <div class="eff-badges" style="display: flex; flex-wrap: wrap; gap: 4px;">
+                <div class="eff-row" style="display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px;">
+                    <span class="eff-label" style="color:${corTexto}; font-weight: bold; width: 68px; flex-shrink: 0; font-size: 10.5px;">${icone} ${escapeHtml(rotulo)}</span>
+                    <div class="eff-badges" style="display: flex; flex-wrap: wrap; gap: 3px 4px;">
                         ${lista.map(t => typeBadgeHtml(t)).join("")}
                     </div>
                 </div>
@@ -315,8 +432,8 @@
         };
 
         return `
-            <div class="efetividade-card" style="margin-top: 10px; padding: 10px; background: rgba(0, 0, 0, 0.2); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                <div class="sec-title" style="font-size: 9px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; color: #8390a5; margin-bottom: 8px;">📊 Efetividade</div>
+            <div class="efetividade-card" style="margin-top: 8px; padding: 8px; background: rgba(0, 0, 0, 0.2); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                <div class="sec-title" style="font-size: 9.5px; font-weight: bold; letter-spacing: 0.6px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">📊 Efetividade</div>
                 ${criarLinhaEfetividade("⚔", "Dá 4x", da4x, "#ffd54a")}
                 ${criarLinhaEfetividade("⚔", "Dá 2x", da2x, "#61f6a4")}
                 ${criarLinhaEfetividade("🛡", "Toma 4x", toma4x, "#ff6b6b")}
@@ -324,6 +441,19 @@
                 ${criarLinhaEfetividade("🛡", "Imune", imune, "#85c5ff")}
             </div>
         `;
+    }
+
+    function gerarUrlPIWTools(pokemon) {
+        if (!pokemon) return "https://piwtools.vercel.app/hunt";
+        const nome = normalizarNomePokemon(pokemon.nome) || String(pokemon.nome || "").toLowerCase().trim();
+        const level = pokemon.nivel ?? 1;
+        const hp = pokemon.hp ?? 0;
+        const atk = pokemon.atk ?? 0;
+        const def = pokemon.def ?? 0;
+        const spatk = pokemon.spa ?? 0;
+        const spdef = pokemon.spd ?? 0;
+        const speed = pokemon.vel ?? 0;
+        return `https://piwtools.vercel.app/hunt?pokemon=${encodeURIComponent(nome)}&level=${encodeURIComponent(level)}&hp=${encodeURIComponent(hp)}&atk=${encodeURIComponent(atk)}&def=${encodeURIComponent(def)}&spatk=${encodeURIComponent(spatk)}&spdef=${encodeURIComponent(spdef)}&speed=${encodeURIComponent(speed)}&tab=route&routeTarget=300`;
     }
 
     let creaturesData = [];
@@ -723,9 +853,9 @@
 
         // 3. Normalizações de gênero e nomes Nidoran Male / Female
         n = n.replace(/\bnidoran\s*male\b|\bnidoran\s*m\b/g, "nidoran-m")
-             .replace(/\bnidoran\s*female\b|\bnidoran\s*f\b/g, "nidoran-f")
-             .replace(/♀/g, "-f")
-             .replace(/♂/g, "-m");
+            .replace(/\bnidoran\s*female\b|\bnidoran\s*f\b/g, "nidoran-f")
+            .replace(/♀/g, "-f")
+            .replace(/♂/g, "-m");
 
         // 4. Mantém apenas letras, números, hífens e espaços
         n = n.replace(/[^a-z0-9\s-]/g, "").trim();
@@ -1166,6 +1296,22 @@
 
                 <div class="header-actions">
                     <button
+                        id="toggle-shiny"
+                        type="button"
+                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
+                    >
+                        ✨
+                    </button>
+
+                    <button
+                        id="toggle-daily"
+                        type="button"
+                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
+                    >
+                        ⏳
+                    </button>
+
+                    <button
                         id="toggle-tracking"
                         type="button"
                         style="margin-right: 4.5px; font-size: 11px; padding: 0 4px;"
@@ -1196,6 +1342,31 @@
                 <div class="small-led led-red"></div>
                 <div class="small-led led-yellow"></div>
                 <div class="small-led led-green"></div>
+            </div>
+
+            <div class="top-banners-grid" style="display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid rgba(255,255,255,0.08); background: #0c121c; box-sizing: border-box; user-select: none; overflow: hidden;">
+                <div id="shiny-detector-banner" style="
+                    padding: 5px 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    font-size: 10px;
+                    border-right: 1px solid rgba(255,255,255,0.08);
+                    transition: all 0.3s ease;
+                    box-sizing: border-box;
+                    min-width: 0;
+                "></div>
+
+                <div id="daily-gift-banner" style="
+                    padding: 5px 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    font-size: 10px;
+                    transition: all 0.3s ease;
+                    box-sizing: border-box;
+                    min-width: 0;
+                "></div>
             </div>
 
             <div id="panel-body">
@@ -1341,6 +1512,33 @@
                 const btn = document.querySelector('[data-tab="moves"]');
                 if (btn) btn.classList.remove("active");
             });
+
+        const btnShiny = document.getElementById("toggle-shiny");
+        const btnDaily = document.getElementById("toggle-daily");
+
+        if (btnShiny) {
+            btnShiny.addEventListener("click", evento => {
+                evento.stopPropagation();
+                shinyDetectorEnabled = !shinyDetectorEnabled;
+                try {
+                    localStorage.setItem("justpokedex-shiny-enabled", String(shinyDetectorEnabled));
+                } catch (e) { }
+                atualizarBotoesTopBanners();
+            });
+        }
+
+        if (btnDaily) {
+            btnDaily.addEventListener("click", evento => {
+                evento.stopPropagation();
+                dailyGiftEnabled = !dailyGiftEnabled;
+                try {
+                    localStorage.setItem("justpokedex-daily-enabled", String(dailyGiftEnabled));
+                } catch (e) { }
+                atualizarBotoesTopBanners();
+            });
+        }
+
+        atualizarBotoesTopBanners();
 
         const btnTracking = document.getElementById("toggle-tracking");
         function atualizarEstiloTracking() {
@@ -1678,16 +1876,23 @@
         }
 
         const htmlQualidade = pokemon.qualidade ? `
-            <div style="background: linear-gradient(135deg, #18202d 0%, #0e1622 100%); border: 1px solid rgba(241,198,68,0.15); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;">
-                <span style="color: #ca9e00; font-size: 7px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">Qualidade</span>
-                <strong style="color: #f1c644; font-size: 11px;">${escapeHtml(pokemon.qualidade)}</strong>
+            <div style="background: linear-gradient(135deg, #18202d 0%, #0e1622 100%); border: 1px solid rgba(241,198,68,0.15); border-radius: 8px; padding: 5px 4px; display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: center;">
+                <span style="color: #ca9e00; font-size: 7px; font-weight: bold; letter-spacing: 0.3px; text-transform: uppercase;">Qualidade</span>
+                <strong style="color: #f1c644; font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(pokemon.qualidade)}</strong>
             </div>
         ` : "";
 
         const htmlIV = pokemon.ivAtual !== null ? `
-            <div style="background: linear-gradient(135deg, #18202d 0%, #0e1622 100%); border: 1px solid rgba(85,230,211,0.15); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;">
-                <span style="color: #00bcd4; font-size: 7px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">IV Total</span>
-                <strong style="color: #55e6d3; font-size: 11px;">${pokemon.ivAtual}/${pokemon.ivMaximo} (${ivPercentual}%)</strong>
+            <div style="background: linear-gradient(135deg, #18202d 0%, #0e1622 100%); border: 1px solid rgba(85,230,211,0.15); border-radius: 8px; padding: 5px 4px; display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: center;">
+                <span style="color: #00bcd4; font-size: 7px; font-weight: bold; letter-spacing: 0.3px; text-transform: uppercase;">IV Total</span>
+                <strong style="color: #55e6d3; font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${pokemon.ivAtual}/${pokemon.ivMaximo} (${ivPercentual}%)">${pokemon.ivAtual}/${pokemon.ivMaximo} (${ivPercentual}%)</strong>
+            </div>
+        ` : "";
+
+        const htmlPoder = (pokemon.poder !== null && pokemon.poder !== undefined) ? `
+            <div style="background: linear-gradient(135deg, #18202d 0%, #0e1622 100%); border: 1px solid rgba(255,152,0,0.15); border-radius: 8px; padding: 5px 4px; display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: center;">
+                <span style="color: #ff9800; font-size: 7px; font-weight: bold; letter-spacing: 0.3px; text-transform: uppercase;">Poder Total</span>
+                <strong style="color: #ffb74d; font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚡ ${formatarNumero(pokemon.poder)}</strong>
             </div>
         ` : "";
 
@@ -1721,9 +1926,10 @@
                 </div>
 
                 <div class="info-area" style="padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
                         ${htmlQualidade}
                         ${htmlIV}
+                        ${htmlPoder}
                     </div>
 
                     <div class="stats-display-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px;">
@@ -1735,15 +1941,27 @@
                         ${renderCardStat("Vel", pokemon.vel, "#e91e63")}
                     </div>
 
-                    <div class="power" style="margin-top: 6px;">
-                        <span>⚡ Poder total</span>
+                    <a href="${gerarUrlPIWTools(pokemon)}" target="_blank" rel="noopener noreferrer" style="
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 6px;
+                        margin-top: 4px;
+                        padding: 7px 12px;
+                        background: linear-gradient(135deg, rgba(85,230,211,0.12) 0%, rgba(28,232,205,0.04) 100%);
+                        border: 1px solid rgba(85,230,211,0.25);
+                        border-radius: 8px;
+                        color: #55e6d3;
+                        font-size: 11px;
+                        font-weight: bold;
+                        text-decoration: none;
+                        transition: all 0.2s ease;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+                    " onmouseenter="this.style.background='linear-gradient(135deg, rgba(85,230,211,0.2) 0%, rgba(28,232,205,0.08) 100%)';this.style.borderColor='rgba(85,230,211,0.45)';" onmouseleave="this.style.background='linear-gradient(135deg, rgba(85,230,211,0.12) 0%, rgba(28,232,205,0.04) 100%)';this.style.borderColor='rgba(85,230,211,0.25)';">
+                        🌐 <span>Simular Rota no PIW Tools</span>
+                        <span style="font-size: 10px; opacity: 0.8; margin-left: auto;">↗</span>
+                    </a>
 
-                        <strong>
-                            ${formatarNumero(
-            pokemon.poder
-        )}
-                        </strong>
-                    </div>
                     ${obterEfetividadeHtml(pokemon)}
                 </div>
             </div>
@@ -2292,6 +2510,28 @@
                 </div>
             </div>
 
+            <div style="padding: 0 12px; margin-top: 8px;">
+                <a id="btn-piw-tools-analise" href="${gerarUrlPIWTools(pokemon)}" target="_blank" rel="noopener noreferrer" style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    padding: 7px 12px;
+                    background: linear-gradient(135deg, rgba(85,230,211,0.12) 0%, rgba(28,232,205,0.04) 100%);
+                    border: 1px solid rgba(85,230,211,0.25);
+                    border-radius: 8px;
+                    color: #55e6d3;
+                    font-size: 11px;
+                    font-weight: bold;
+                    text-decoration: none;
+                    transition: all 0.2s ease;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+                " onmouseenter="this.style.background='linear-gradient(135deg, rgba(85,230,211,0.2) 0%, rgba(28,232,205,0.08) 100%)';this.style.borderColor='rgba(85,230,211,0.45)';" onmouseleave="this.style.background='linear-gradient(135deg, rgba(85,230,211,0.12) 0%, rgba(28,232,205,0.04) 100%)';this.style.borderColor='rgba(85,230,211,0.25)';">
+                    <span style="font-size: 13px;">🌐</span>
+                    <span>Simular Rota no PIW Tools</span>
+                </a>
+            </div>
+
             ${pokemon.nivel && pokemon.nivel < 15
                 ? `
                         <div class="warning level-warning" style="margin: 8px 12px; padding: 8px 10px; background: rgba(243, 154, 75, 0.15); border: 1px solid rgba(243, 154, 75, 0.4); border-radius: 8px; color: #ffd77d; font-size: 10px; display: flex; align-items: center; gap: 6px;">
@@ -2735,6 +2975,24 @@
         if (!area) return;
 
         const miniContainer = document.getElementById("analysis-results-mini");
+        const btnPiwAnalise = document.getElementById("btn-piw-tools-analise");
+
+        if (btnPiwAnalise) {
+            const pokeObj = pokemonManualAtual || ultimoPokemon;
+            if (pokeObj) {
+                const tempPoke = {
+                    ...pokeObj,
+                    nivel: Number.isFinite(nivel) ? nivel : pokeObj.nivel,
+                    hp: Number.isFinite(atuais.hp) ? atuais.hp : pokeObj.hp,
+                    atk: Number.isFinite(atuais.atk) ? atuais.atk : pokeObj.atk,
+                    def: Number.isFinite(atuais.def) ? atuais.def : pokeObj.def,
+                    spa: Number.isFinite(atuais.spa) ? atuais.spa : pokeObj.spa,
+                    spd: Number.isFinite(atuais.spd) ? atuais.spd : pokeObj.spd,
+                    vel: Number.isFinite(atuais.vel) ? atuais.vel : pokeObj.vel
+                };
+                btnPiwAnalise.href = gerarUrlPIWTools(tempPoke);
+            }
+        }
 
         if (camposInvalidos) {
             if (miniContainer) miniContainer.style.display = "none";
@@ -3352,11 +3610,12 @@
                 height: 48px !important;
             }
 
-            #${CONFIG.panelId}.minimized
-            #panel-body,
-            #${CONFIG.panelId}.minimized
-            .led-area {
-                display: none;
+            #${CONFIG.panelId}.minimized #panel-body,
+            #${CONFIG.panelId}.minimized .led-area,
+            #${CONFIG.panelId}.minimized .top-banners-grid,
+            #${CONFIG.panelId}.minimized #toggle-shiny,
+            #${CONFIG.panelId}.minimized #toggle-daily {
+                display: none !important;
             }
 
             #${CONFIG.panelId}.dragging {
@@ -5402,7 +5661,7 @@
 
         observer.observe(document.body, {
             childList: true,
-            subtree: true
+            subtree: false
         });
 
         let filtrandoClog = false;
@@ -5438,6 +5697,197 @@
         }
     }
 
+    const DAILY_GIFT_KEY = "justpokedex-daily-gift-claim-timestamp";
+    const COOLDOWN_24H_MS = 24 * 60 * 60 * 1000;
+
+    function obterTempoRestanteResgate() {
+        try {
+            const salvo = localStorage.getItem(DAILY_GIFT_KEY);
+            if (!salvo) return 0;
+            const timestamp = parseInt(salvo, 10);
+            if (!Number.isFinite(timestamp)) return 0;
+            const decorrido = Date.now() - timestamp;
+            const restante = COOLDOWN_24H_MS - decorrido;
+            return restante > 0 ? restante : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    function formatarTempoRestante(ms) {
+        const totalSegundos = Math.floor(ms / 1000);
+        const horas = Math.floor(totalSegundos / 3600);
+        const minutos = Math.floor((totalSegundos % 3600) / 60);
+        if (horas > 0) {
+            return `${horas}h ${minutos}m`;
+        }
+        return `${minutos}m`;
+    }
+
+    function registrarResgateDiarioHoje() {
+        try {
+            if (obterTempoRestanteResgate() === 0) {
+                localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
+            }
+        } catch (e) { }
+        atualizarBannerResgateDiario();
+    }
+
+    function limparResgateDiarioHoje() {
+        try {
+            localStorage.removeItem(DAILY_GIFT_KEY);
+        } catch (e) { }
+        atualizarBannerResgateDiario();
+    }
+
+    function atualizarBannerResgateDiario() {
+        const banner = document.getElementById("daily-gift-banner");
+        if (!banner) return;
+
+        const btn = document.querySelector("button.dg-resgatar");
+        if (btn) {
+            const text = (btn.innerText || "").toLowerCase();
+            const isDisabled = btn.hasAttribute("disabled") || btn.disabled || text.includes("coletado");
+            if (!isDisabled) {
+                limparResgateDiarioHoje();
+            } else if (obterTempoRestanteResgate() === 0) {
+                registrarResgateDiarioHoje();
+            }
+        }
+
+        const restante = obterTempoRestanteResgate();
+
+        if (restante > 0) {
+            banner.style.background = "linear-gradient(135deg, rgba(76,175,80,0.12) 0%, rgba(46,125,50,0.05) 100%)";
+            banner.style.cursor = "default";
+            banner.title = `Próximo resgate diário em ${formatarTempoRestante(restante)}`;
+            banner.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden;">
+                    <span style="font-size: 11px;">⏳</span>
+                    <strong style="color: #81c784; font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Próximo resgate em ${formatarTempoRestante(restante)}">${formatarTempoRestante(restante)}</strong>
+                </div>
+                <span style="color: #66bb6a; font-size: 8.5px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px; flex-shrink: 0;">24h</span>
+            `;
+        } else {
+            banner.style.background = "linear-gradient(135deg, rgba(241,198,68,0.18) 0%, rgba(180,120,20,0.15) 100%)";
+            banner.style.cursor = "pointer";
+            banner.title = "Clique para lembrar de abrir o Daily Gift no jogo";
+            banner.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden;">
+                    <span style="font-size: 11px;">🎁</span>
+                    <strong style="color: #ffe984; font-size: 9.5px; white-space: nowrap;">Daily Gift</strong>
+                </div>
+                <span style="color: #ca9e00; font-size: 8.5px; font-weight: bold; background: rgba(241,198,68,0.2); border: 1px solid rgba(241,198,68,0.3); padding: 1px 5px; border-radius: 3px; flex-shrink: 0;">Resgatar</span>
+            `;
+            if (!banner.dataset.pokedexClickObserved) {
+                banner.dataset.pokedexClickObserved = "true";
+                banner.addEventListener("click", () => {
+                    alert("🎁 Lembrete JustPokédex:\nAbra a janela de 'Daily Gift' no jogo para resgatar sua recompensa diária!");
+                });
+            }
+        }
+    }
+
+    function observarResgateDiario() {
+        function verificarBotaoResgate() {
+            const btn = document.querySelector("button.dg-resgatar");
+            if (btn) {
+                const text = (btn.innerText || "").toLowerCase();
+                const isDisabled = btn.hasAttribute("disabled") || btn.disabled || text.includes("coletado");
+                if (isDisabled) {
+                    registrarResgateDiarioHoje();
+                } else {
+                    limparResgateDiarioHoje();
+                    if (!btn.dataset.pokedexObserved) {
+                        btn.dataset.pokedexObserved = "true";
+                        btn.addEventListener("click", () => {
+                            try {
+                                localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
+                            } catch (e) { }
+                            setTimeout(atualizarBannerResgateDiario, 300);
+                        });
+                    }
+                }
+            } else {
+                atualizarBannerResgateDiario();
+            }
+        }
+
+        // Verificação periódica ultraleve (3s) com zero impacto de CPU
+        setInterval(verificarBotaoResgate, 3000);
+
+        document.addEventListener("click", (e) => {
+            if (e.target?.closest("button.dg-resgatar")) {
+                try {
+                    localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
+                } catch (err) { }
+                setTimeout(verificarBotaoResgate, 300);
+            }
+        });
+
+        verificarBotaoResgate();
+        atualizarBannerResgateDiario();
+    }
+
+    function atualizarBannerDetectorShiny() {
+        const banner = document.getElementById("shiny-detector-banner");
+        if (!banner) return;
+
+        const countBadge = contadorShinies > 0 ? `<span style="background: rgba(255,193,7,0.2); border: 1px solid rgba(255,193,7,0.4); color: #ffd54f; font-size: 8.5px; font-weight: bold; padding: 0 4px; border-radius: 3px;" title="Total de Shinies detectados">${contadorShinies}</span>` : "";
+
+        if (shinyDetectadoNoMapa) {
+            banner.style.background = "linear-gradient(135deg, rgba(255,87,34,0.35) 0%, rgba(244,67,54,0.25) 100%)";
+            banner.style.boxShadow = "inset 0 0 8px rgba(255,87,34,0.4)";
+            banner.style.cursor = "pointer";
+            banner.title = "Clique para confirmar e dispensar este alerta de Shiny";
+            banner.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; animation: pulse 1s infinite alternate;">
+                    <span style="font-size: 11px;">✨</span>
+                    <strong style="color: #ffe0b2; font-size: 9.5px; white-space: nowrap;">SHINY!</strong>
+                </div>
+                <button id="btn-limpar-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; flex-shrink: 0;">OK</button>
+            `;
+
+            const btnLimpar = banner.querySelector("#btn-limpar-shiny");
+            if (btnLimpar) {
+                btnLimpar.onclick = (e) => {
+                    e.stopPropagation();
+                    shinyDetectadoNoMapa = false;
+                    atualizarBannerDetectorShiny();
+                };
+            }
+            banner.onclick = () => {
+                shinyDetectadoNoMapa = false;
+                atualizarBannerDetectorShiny();
+            };
+        } else {
+            banner.style.background = "linear-gradient(135deg, rgba(238,153,172,0.08) 0%, rgba(202,48,53,0.04) 100%)";
+            banner.style.boxShadow = "none";
+            banner.style.cursor = "default";
+            banner.onclick = null;
+            banner.title = "O detector de Shiny está monitorando os dados do mapa via WebSocket. Clique no reset (🔄) para zerar a contagem.";
+            banner.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden;">
+                    <span style="font-size: 11px; opacity: 0.8;">✨</span>
+                    <span style="color: #f48fb1; font-size: 9.5px; font-weight: bold; white-space: nowrap;">Shiny</span>
+                    ${countBadge}
+                </div>
+                <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                    ${contadorShinies > 0 ? `<button id="btn-reset-shiny-counter" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Zerar contador">🔄</button>` : ""}
+                    <span style="color: #818cf8; font-size: 8.5px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px;">Ativo</span>
+                </div>
+            `;
+
+            const btnReset = banner.querySelector("#btn-reset-shiny-counter");
+            if (btnReset) {
+                btnReset.onclick = (e) => {
+                    e.stopPropagation();
+                    zerarContadorShiny();
+                };
+            }
+        }
+    }
+
     try {
         const fixedSalvo = localStorage.getItem("pokemon-fixed");
         if (fixedSalvo) {
@@ -5460,4 +5910,6 @@
     observarTooltips();
     iniciarEscutasEventos();
     observarLogDeCapturas();
+    observarResgateDiario();
+    atualizarBannerDetectorShiny();
 })();

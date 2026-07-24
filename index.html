@@ -682,15 +682,50 @@
         }
 
         /* ETIQUETAS DE QUALIDADE OFICIAIS (PIW) */
-        .tag-fraca { background: rgba(158, 158, 158, 0.15); color: #9e9e9e; }
-        .tag-comum { background: rgba(168, 168, 168, 0.15); color: #a8a8a8; }
-        .tag-incomum { background: rgba(94, 215, 185, 0.15); color: #5ed7b9; }
-        .tag-rara { background: rgba(105, 183, 255, 0.15); color: #69b7ff; }
-        .tag-epica { background: rgba(217, 133, 255, 0.15); color: #d985ff; }
-        .tag-lendaria { background: rgba(241, 198, 68, 0.15); color: #f1c644; }
-        .tag-mitica { background: rgba(255, 102, 128, 0.15); color: #ff6680; }
-        .tag-ancia { background: rgba(255, 152, 0, 0.15); color: #ff9800; }
-        .tag-divina { background: rgba(0, 188, 212, 0.15); color: #00bcd4; }
+        .tag-fraca {
+            background: rgba(158, 158, 158, 0.15);
+            color: #9e9e9e;
+        }
+
+        .tag-comum {
+            background: rgba(168, 168, 168, 0.15);
+            color: #a8a8a8;
+        }
+
+        .tag-incomum {
+            background: rgba(94, 215, 185, 0.15);
+            color: #5ed7b9;
+        }
+
+        .tag-rara {
+            background: rgba(105, 183, 255, 0.15);
+            color: #69b7ff;
+        }
+
+        .tag-epica {
+            background: rgba(217, 133, 255, 0.15);
+            color: #d985ff;
+        }
+
+        .tag-lendaria {
+            background: rgba(241, 198, 68, 0.15);
+            color: #f1c644;
+        }
+
+        .tag-mitica {
+            background: rgba(255, 102, 128, 0.15);
+            color: #ff6680;
+        }
+
+        .tag-ancia {
+            background: rgba(255, 152, 0, 0.15);
+            color: #ff9800;
+        }
+
+        .tag-divina {
+            background: rgba(0, 188, 212, 0.15);
+            color: #00bcd4;
+        }
 
         footer {
             margin-top: 60px;
@@ -739,6 +774,49 @@
             </div>
 
             <div class="grid-3">
+                <div class="card card-gold-border">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="card-icon">✨</div>
+                        <span class="tag tag-excepcional"
+                            style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 800;">✨
+                            NOVO</span>
+                    </div>
+                    <h3 class="card-title">Detector & Contador de Shiny</h3>
+                    <p class="card-p">Intercepta pacotes do mapa em tempo real via WebSocket, emitindo alertas imediatos
+                        ao detectar <code>"shiny": true</code> na região e salvando a contagem de Shinies no
+                        <code>localStorage</code> com opção de zerar (🔄).
+                    </p>
+                </div>
+
+                <div class="card card-gold-border">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="card-icon">🚀</div>
+                        <span class="tag tag-excepcional"
+                            style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 800;">✨
+                            NOVO</span>
+                    </div>
+                    <h3 class="card-title">Atalho PIW Tools (Rota Otimizada)</h3>
+                    <p class="card-p">Botão direto na aba Pokémon que abre o simulador do <strong>PIW Tools</strong> (em
+                        nova aba <code>_blank</code>) com todos os status, nível e nome auto-preenchidos via URL GET.
+                        <br>(funcionalidade liberada pelo @bar)
+                    </p>
+                </div>
+
+                <div class="card card-gold-border">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="card-icon">🎁</div>
+                        <span class="tag tag-excepcional"
+                            style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 800;">✨
+                            NOVO</span>
+                    </div>
+                    <h3 class="card-title">Lembrete de Resgate Diário (24h Cooldown)</h3>
+                    <p class="card-p">Banner inteligente no topo do painel que monitora a janela do <strong>Daily
+                            Gift</strong> (<code>button.dg-resgatar</code>) e exibe contagem regressiva de 24h exatas a
+                        partir do momento da coleta.
+                        <br> (funciona somente com o resgate ativo)
+                    </p>
+                </div>
+
                 <div class="card card-gold-border">
                     <div class="card-icon">🐭</div>
                     <h3 class="card-title">Leitura por Hover em Tempo Real</h3>
@@ -830,7 +908,8 @@
                         <div class="formula-item"><strong>S (Stat)</strong><span>Atributo final exibido</span></div>
                         <div class="formula-item"><strong>B (Base Stat)</strong><span>Status base da PokeAPI</span>
                         </div>
-                        <div class="formula-item"><strong>IV</strong><span>Por atributo (0 a 32) | Total dos 6 atributos: (0 a 192)</span></div>
+                        <div class="formula-item"><strong>IV</strong><span>Por atributo (0 a 32) | Total dos 6
+                                atributos: (0 a 192)</span></div>
                         <div class="formula-item"><strong>L (Level)</strong><span>Nível do Pokémon</span></div>
                         <div class="formula-item"><strong>Q (Quality)</strong><span>Multiplicador de Raridade</span>
                         </div>
@@ -871,7 +950,8 @@
             <div class="grid-2">
                 <!-- AVALIAÇÃO DE POTENCIAL IV -->
                 <div class="card">
-                    <h3 class="card-title" style="font-size: 16px; margin-bottom: 14px; color: var(--accent-cyan);">📊 Avaliação por Potencial de IV (%)</h3>
+                    <h3 class="card-title" style="font-size: 16px; margin-bottom: 14px; color: var(--accent-cyan);">📊
+                        Avaliação por Potencial de IV (%)</h3>
                     <table class="rating-table">
                         <thead>
                             <tr>
@@ -917,7 +997,8 @@
 
                 <!-- ETIQUETAS OFICIAIS DE QUALIDADE -->
                 <div class="card">
-                    <h3 class="card-title" style="font-size: 16px; margin-bottom: 14px; color: var(--accent-gold);">🏷️ Etiquetas Oficiais de Qualidade (Game System)</h3>
+                    <h3 class="card-title" style="font-size: 16px; margin-bottom: 14px; color: var(--accent-gold);">🏷️
+                        Etiquetas Oficiais de Qualidade (Game System)</h3>
                     <table class="rating-table">
                         <thead>
                             <tr>
@@ -975,7 +1056,9 @@
                         </tbody>
                     </table>
                     <p style="font-size: 11px; color: var(--text-muted); margin-top: 12px; line-height: 1.4;">
-                        💡 <strong>Nota Oficial:</strong> Os tiers <em>Mítica, Anciã e Divina</em> (qualidade 2.0+) <strong>NÃO</strong> saem em capturas selvagens normais (teto 1.8) — são alcançados via Breeding, Shinies e Eventos.
+                        💡 <strong>Nota Oficial:</strong> Os tiers <em>Mítica, Anciã e Divina</em> (qualidade 2.0+)
+                        <strong>NÃO</strong> saem em capturas selvagens normais (teto 1.8) — são alcançados via
+                        Breeding, Shinies e Eventos.
                     </p>
                 </div>
             </div>
@@ -1002,14 +1085,19 @@
                 <div class="card">
                     <h3 class="card-title">Passo 2: Adicione o Código</h3>
                     <p class="card-p">Crie um novo script na extensão e cole o conteúdo do script oficial obtido direto
-                        do <a href="https://github.com/guilherme-se/justpokedex" target="_blank" style="color: var(--accent-cyan); font-weight: 700;">GitHub Repositório Oficial</a>.</p>
+                        do <a href="https://github.com/guilherme-se/justpokedex" target="_blank"
+                            style="color: var(--accent-cyan); font-weight: 700;">GitHub Repositório Oficial</a>.</p>
                     <p class="card-p">Acesse <a href="https://poke.idleworld.online/" target="_blank"
                             style="color: var(--accent-cyan);">poke.idleworld.online</a> e aproveite!</p>
 
-                    <div style="margin-top: 14px; padding: 10px 14px; background: rgba(241, 198, 68, 0.08); border: 1px solid rgba(241, 198, 68, 0.3); border-radius: 10px; font-size: 13px;">
+                    <div
+                        style="margin-top: 14px; padding: 10px 14px; background: rgba(241, 198, 68, 0.08); border: 1px solid rgba(241, 198, 68, 0.3); border-radius: 10px; font-size: 13px;">
                         🎥 <strong>Precisa de ajuda na instalação?</strong><br>
-                        <span style="color: var(--text-muted); font-size: 12px;">Se tiver qualquer dúvida ou dificuldade, assista ao tutorial em vídeo passo a passo: </span>
-                        <a href="https://www.loom.com/share/cc6d34c8522b451abfe601bcf66e5657" target="_blank" style="color: var(--accent-gold); font-weight: 800; text-decoration: underline; white-space: nowrap;">▶ Ver Vídeo Tutorial no Loom</a>
+                        <span style="color: var(--text-muted); font-size: 12px;">Se tiver qualquer dúvida ou
+                            dificuldade, assista ao tutorial em vídeo passo a passo: </span>
+                        <a href="https://www.loom.com/share/cc6d34c8522b451abfe601bcf66e5657" target="_blank"
+                            style="color: var(--accent-gold); font-weight: 800; text-decoration: underline; white-space: nowrap;">▶
+                            Ver Vídeo Tutorial no Loom</a>
                     </div>
                 </div>
             </div>
