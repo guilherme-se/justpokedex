@@ -2598,7 +2598,7 @@
                                 id="quality-input"
                                 type="number"
                                 min="1"
-                                max="3"
+                                max="4"
                                 step="0.01"
                                 value="${pokemon.multiplicadorQualidade ?? ""}"
                             >
@@ -2627,6 +2627,26 @@
                         </div>
                     </label>
 
+                    <label class="primary-field">
+                        <span>
+                            <i>✦</i>
+                            IV Total
+                        </span>
+
+                        <div class="input-with-suffix">
+                            <input
+                                id="iv-total-input"
+                                type="number"
+                                min="0"
+                                max="192"
+                                step="0.1"
+                                placeholder="${pokemon.ivAtual ?? ''}"
+                                value="${pokemon.ivAtual ?? ''}"
+                            >
+
+                            <b>/192</b>
+                        </div>
+                    </label>
                 </div>
 
                 <div class="data-section">
@@ -3032,9 +3052,9 @@
         // Soma direta dos floats brutos (sem perda de precisão)
         const somaFloatExact = Object.values(ivsFloats).reduce((s, v) => s + (v || 0), 0);
 
-        // IV Total oficial (Math.ceil da soma dos floats)
-        const ivTotal = Math.ceil(somaFloatExact);
-        const percentualIV = (somaFloatExact / CONFIG.maxIVTotal) * 100;
+        // Se o IV Total for fornecido (pelo jogo ou editado pelo usuário em iv-total-input), ele tem prioridade absoluta!
+        const ivTotalFinal = ivTotalFornecido ? ivTotalInputVal : Math.ceil(somaFloatExact);
+        const percentualIV = (ivTotalFinal / CONFIG.maxIVTotal) * 100;
 
         const ivsMaximos = {
             hp: CONFIG.maxIVIndividual,
@@ -3054,7 +3074,9 @@
 
         const baseStatsArr = [bases.hp, bases.atk, bases.def, bases.spa, bases.spd, bases.vel];
         const individualIvsArr = [ivs.hp, ivs.atk, ivs.def, ivs.spa, ivs.spd, ivs.vel];
-        const potencial = calcularPotencialExemplar(baseStatsArr, individualIvsArr, qualidade, CONFIG.maxIVIndividual);
+        const potencial = ivTotalFornecido
+            ? Math.min(100, Math.max(0, (ivTotalInputVal / CONFIG.maxIVTotal) * 100))
+            : calcularPotencialExemplar(baseStatsArr, individualIvsArr, qualidade, CONFIG.maxIVIndividual);
 
         const classificacao = classificarPotencial(potencial);
         const grausCirculo = limitar(potencial, 0, 100) * 3.6;
@@ -3065,7 +3087,7 @@
 
         if (miniQuality && miniIv && miniPower && miniContainer) {
             miniQuality.textContent = formatarDecimal(qualidade, 2);
-            miniIv.textContent = formatarDecimal(ivTotal, 1);
+            miniIv.textContent = formatarDecimal(ivTotalFinal, 1);
             miniPower.textContent = formatarNumero(Math.round(poderEstimado));
             miniContainer.style.display = "flex";
         }
@@ -3180,7 +3202,7 @@
                     </div>
 
                     <span class="individual-total">
-                        ${ivTotal}/192
+                        ${formatarDecimal(ivTotalFinal, 1)}/192
                     </span>
                 </div>
 
@@ -5522,10 +5544,12 @@
         const qualidadeTexto = lateral.innerText.match(/Raridade\s+([^\n]+)/i)?.[1]?.trim() || "";
         const multiplicador = numeroDecimal(qualidadeTexto?.match(/(?:×|x)\s*([\d.,]+)/i)?.[1]) || 1.0;
 
-        // 3. IV Total observado (Ex: "148/182")
-        const ivMatch = lateral.innerText.match(/IV\s*(\d+)\s*\/\s*(\d+)/i);
+        // 3. IV Total observado (Ex: "148/182" ou "131/192")
+        const cardAtivo = document.querySelector(".mkt2-card.clickable.active, .mkt2-trow.clickable.active, .mkt2-card.clickable, .mkt2-trow.clickable");
+        const textoBusca = (lateral.innerText || "") + " " + (cardAtivo ? cardAtivo.innerText : "");
+        const ivMatch = textoBusca.match(/IV\s*(\d+)\s*\/\s*(\d+)/i) || textoBusca.match(/IV\s*(\d+)/i);
         const ivAtual = ivMatch ? Number(ivMatch[1]) : null;
-        const ivMaximo = ivMatch ? Number(ivMatch[2]) : 192;
+        const ivMaximo = ivMatch && ivMatch[2] ? Number(ivMatch[2]) : 192;
 
         // 4. Poder
         const poderMatch = lateral.innerText.match(/Poder\s*.*?(\d+)/i);
@@ -5604,26 +5628,66 @@
     }
 
     function observarLogDeCapturas() {
-        let listObserver = null;
+        let clogListObserver = null;
+        let filtrandoClog = false;
 
-        const observer = new MutationObserver(() => {
+        function aplicarFiltroClog() {
+            if (filtrandoClog) return;
+            const clogWindow = document.querySelector(".clog-window");
+            if (!clogWindow) return;
+
+            const rarityFilter = (document.getElementById("clog-filter-rarity")?.value || "").toLowerCase().trim();
+            const ivFilterVal = parseInt(document.getElementById("clog-filter-iv")?.value || "0", 10);
+
+            const rows = clogWindow.querySelectorAll(".clog-list .clog-row");
+            if (!rows.length) return;
+
+            filtrandoClog = true;
+            rows.forEach(row => {
+                const metaEl = row.querySelector(".clog-meta");
+                const fullText = (row.innerText || "").trim();
+                const metaText = metaEl ? (metaEl.innerText || "").trim() : fullText;
+
+                // Extrai raridade (primeira parte antes do ponto · ou espaço)
+                // Ex: "Comum · IV 106/192" -> parts[0] = "Comum"
+                const parts = metaText.split("·").map(s => s.trim());
+                const rarityText = parts[0] ? parts[0] : metaText.split(/\s+/)[0] || "";
+
+                // Extrai o valor do IV (Ex: "IV 106/192" -> 106)
+                const ivMatch = metaText.match(/IV\s*(\d+)/i) || fullText.match(/IV\s*(\d+)/i);
+                const ivVal = ivMatch ? parseInt(ivMatch[1], 10) : 0;
+
+                const matchesRarity = !rarityFilter || rarityText.toLowerCase().trim() === rarityFilter;
+                const matchesIv = !ivFilterVal || ivVal >= ivFilterVal;
+
+                if (matchesRarity && matchesIv) {
+                    row.style.setProperty("display", "", "important");
+                } else {
+                    row.style.setProperty("display", "none", "important");
+                }
+            });
+            filtrandoClog = false;
+        }
+
+        function verificarEInjetarFiltroClog() {
             const clogWindow = document.querySelector(".clog-window");
             if (!clogWindow) {
-                if (listObserver) {
-                    listObserver.disconnect();
-                    listObserver = null;
+                if (clogListObserver) {
+                    clogListObserver.disconnect();
+                    clogListObserver = null;
                 }
                 return;
             }
 
+            // Injeta a barra de filtro se ainda não existir
             if (!document.getElementById("clog-filter-rarity")) {
-                const head = clogWindow.querySelector(".clog-head");
+                const head = clogWindow.querySelector(".clog-head") || clogWindow.querySelector(".clog-title");
                 if (head) {
                     const filterBar = document.createElement("div");
                     filterBar.className = "clog-filter-bar";
-                    filterBar.style.cssText = "display: flex; gap: 6px; padding: 6px 12px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(255,255,255,0.06); align-items: center;";
+                    filterBar.style.cssText = "display: flex; gap: 6px; padding: 6px 12px; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.08); align-items: center; box-sizing: border-box;";
                     filterBar.innerHTML = `
-                        <select id="clog-filter-rarity" style="flex: 1; background: #151d2a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 22px;">
+                        <select id="clog-filter-rarity" style="flex: 1; background: #151d2a; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 22px; cursor: pointer;">
                             <option value="">Todas Raridades</option>
                             <option value="Comum">Comum</option>
                             <option value="Incomum">Incomum</option>
@@ -5631,8 +5695,10 @@
                             <option value="Épica">Épica</option>
                             <option value="Lendária">Lendária</option>
                             <option value="Mítica">Mítica</option>
+                            <option value="Anciã">Anciã</option>
+                            <option value="Divina">Divina</option>
                         </select>
-                        <input type="number" id="clog-filter-iv" placeholder="IV Min (ex: 110)" style="width: 105px; background: #151d2a; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 22px;" min="0" max="192">
+                        <input type="number" id="clog-filter-iv" placeholder="IV Min (ex: 110)" style="width: 105px; background: #151d2a; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 22px;" min="0" max="192">
                     `;
                     head.insertAdjacentElement("afterend", filterBar);
 
@@ -5644,57 +5710,27 @@
                 }
             }
 
+            // Observa a lista de capturas para aplicar o filtro dinamicamente quando novas linhas entram
             const clogList = clogWindow.querySelector(".clog-list");
-            if (clogList && !listObserver) {
-                listObserver = new MutationObserver(() => {
+            if (clogList && !clogListObserver) {
+                clogListObserver = new MutationObserver(() => {
                     aplicarFiltroClog();
                 });
-                listObserver.observe(clogList, {
+                clogListObserver.observe(clogList, {
                     childList: true,
                     subtree: true,
                     attributes: true,
                     attributeFilter: ["style", "class"]
                 });
                 aplicarFiltroClog();
+            } else if (clogList) {
+                aplicarFiltroClog();
             }
-        });
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: false
-        });
-
-        let filtrandoClog = false;
-        function aplicarFiltroClog() {
-            if (filtrandoClog) return;
-            const rarityFilter = document.getElementById("clog-filter-rarity")?.value || "";
-            const ivFilterVal = parseInt(document.getElementById("clog-filter-iv")?.value || "0", 10);
-
-            const rows = document.querySelectorAll(".clog-window .clog-list .clog-row");
-            if (!rows.length) return;
-
-            filtrandoClog = true;
-            rows.forEach(row => {
-                const metaEl = row.querySelector(".clog-meta");
-                if (!metaEl) return;
-
-                const rarityText = metaEl.querySelector("b")?.innerText?.trim() || "";
-
-                const text = metaEl.innerText || "";
-                const ivMatch = text.match(/IV\s*(\d+)/i);
-                const ivVal = ivMatch ? parseInt(ivMatch[1], 10) : 0;
-
-                const matchesRarity = !rarityFilter || rarityText.toLowerCase() === rarityFilter.toLowerCase();
-                const matchesIv = !ivFilterVal || ivVal >= ivFilterVal;
-
-                if (matchesRarity && matchesIv) {
-                    row.style.setProperty("display", "", "important");
-                } else {
-                    row.style.setProperty("display", "none", "important");
-                }
-            });
-            filtrandoClog = false;
         }
+
+        // Verificação periódica a cada 1 segundo (0% impacto de CPU)
+        setInterval(verificarEInjetarFiltroClog, 1000);
+        verificarEInjetarFiltroClog();
     }
 
     const DAILY_GIFT_KEY = "justpokedex-daily-gift-claim-timestamp";
