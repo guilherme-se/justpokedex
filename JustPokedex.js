@@ -35,6 +35,8 @@
     let shinyDetectadoNoMapa = false;
     let tempoUltimoShiny = 0;
     let tempoUltimoIncrementoShiny = 0;
+    let tempoSilenciarShiny = 0;
+    let tempoUltimoPacoteShiny = 0;
 
     let shinyDetectorEnabled = true;
     let dailyGiftEnabled = true;
@@ -134,6 +136,32 @@
         } catch (e) { }
     }
 
+    function dispensarAlertaShiny() {
+        shinyDetectadoNoMapa = false;
+        // Silencia alertas do WebSocket por até 60s enquanto o mesmo Shiny estiver no mapa
+        tempoSilenciarShiny = Date.now() + 60000;
+        if (typeof atualizarBannerDetectorShiny === "function") {
+            atualizarBannerDetectorShiny();
+        }
+    }
+
+    (function monitorarInatividadeShiny() {
+        // Se passarem 4s sem nenhum pacote de Shiny no mapa, o Shiny foi derrotado ou sumiu.
+        // Reseta o silenciamento para que o PRÓXIMO Shiny dispare o alerta imediatamente!
+        setInterval(() => {
+            const agora = Date.now();
+            if (tempoUltimoPacoteShiny > 0 && (agora - tempoUltimoPacoteShiny > 4000)) {
+                tempoSilenciarShiny = 0;
+                if (shinyDetectadoNoMapa && (agora - tempoUltimoShiny > 8000)) {
+                    shinyDetectadoNoMapa = false;
+                    if (typeof atualizarBannerDetectorShiny === "function") {
+                        atualizarBannerDetectorShiny();
+                    }
+                }
+            }
+        }, 2000);
+    })();
+
     (function interceptarWebSocketShiny() {
         const OriginalWebSocket = window.WebSocket;
         if (!OriginalWebSocket) return;
@@ -145,8 +173,16 @@
                 try {
                     if (typeof evento.data === "string") {
                         if (evento.data.includes('"shiny":true') || evento.data.includes('"shiny": true')) {
+                            const agora = Date.now();
+                            tempoUltimoPacoteShiny = agora;
+
+                            // Se o usuário dispensou o alerta deste Shiny, não reabre o alerta enquanto o mesmo Pokémon estiver no mapa
+                            if (agora < tempoSilenciarShiny) {
+                                return;
+                            }
+
                             shinyDetectadoNoMapa = true;
-                            tempoUltimoShiny = Date.now();
+                            tempoUltimoShiny = agora;
                             incrementarContadorShiny();
                             tocarSomShiny();
                             if (typeof atualizarBannerDetectorShiny === "function") {
@@ -5975,13 +6011,11 @@
             if (btnLimpar) {
                 btnLimpar.onclick = (e) => {
                     e.stopPropagation();
-                    shinyDetectadoNoMapa = false;
-                    atualizarBannerDetectorShiny();
+                    dispensarAlertaShiny();
                 };
             }
             banner.onclick = () => {
-                shinyDetectadoNoMapa = false;
-                atualizarBannerDetectorShiny();
+                dispensarAlertaShiny();
             };
         } else {
             banner.style.background = "linear-gradient(135deg, rgba(238,153,172,0.08) 0%, rgba(202,48,53,0.04) 100%)";
