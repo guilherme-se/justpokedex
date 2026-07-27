@@ -113,6 +113,27 @@
         atualizarBannerDetectorShiny();
     }
 
+    let tempoUltimoSomShiny = 0;
+    const SHINY_SOUND_URL = "https://www.myinstants.com/media/sounds/legends-arceus-shiny-noise.mp3";
+
+    function tocarSomShiny(forcar = false) {
+        const agora = Date.now();
+        // Cooldown de 15 segundos para evitar que o áudio toque em loop contínuo a cada pacote de mapa do WebSocket
+        if (!forcar && (agora - tempoUltimoSomShiny < 15000)) {
+            return;
+        }
+        tempoUltimoSomShiny = agora;
+
+        try {
+            const audioObj = new Audio(SHINY_SOUND_URL);
+            audioObj.loop = false;
+            audioObj.volume = 0.85;
+            audioObj.play().catch(e => {
+                console.warn("[JustPokédex] Não foi possível tocar o áudio de Shiny:", e);
+            });
+        } catch (e) { }
+    }
+
     (function interceptarWebSocketShiny() {
         const OriginalWebSocket = window.WebSocket;
         if (!OriginalWebSocket) return;
@@ -127,6 +148,7 @@
                             shinyDetectadoNoMapa = true;
                             tempoUltimoShiny = Date.now();
                             incrementarContadorShiny();
+                            tocarSomShiny();
                             if (typeof atualizarBannerDetectorShiny === "function") {
                                 atualizarBannerDetectorShiny();
                             }
@@ -1137,6 +1159,31 @@
         salvarEstadoPainel(painel);
     }
 
+    function mostrarPainelCompleto() {
+        const painel = document.getElementById(CONFIG.panelId);
+        if (painel) {
+            painel.style.display = "flex";
+            limitarPainelNaTela(painel);
+            salvarEstadoPainel(painel);
+        }
+    }
+
+    function alternarVisibilidadePainel() {
+        const painel = document.getElementById(CONFIG.panelId);
+        if (!painel) return;
+
+        if (painel.style.display === "none") {
+            mostrarPainelCompleto();
+        } else {
+            painel.style.display = "none";
+            const movesPanelEl = document.getElementById("moves-panel");
+            if (movesPanelEl) movesPanelEl.style.display = "none";
+            mostrarAbaMoves = false;
+            const btn = document.querySelector('[data-tab="moves"]');
+            if (btn) btn.classList.remove("active");
+        }
+    }
+
     function ativarArraste(painel) {
         const handle =
             document.getElementById("drag-handle");
@@ -1791,7 +1838,7 @@
 
         if (!conteudo || !painel) return;
 
-        painel.style.display = "flex";
+        mostrarPainelCompleto();
 
         const ivPercentual =
             pokemon.ivAtual !== null &&
@@ -5625,6 +5672,14 @@
                 setTimeout(processarDadosMercado, 60);
             }
         });
+
+        // Atalho de Teclado (Alt + P) para alternar visibilidade da extensão a qualquer momento
+        document.addEventListener("keydown", (evento) => {
+            if (evento.altKey && (evento.key === "p" || evento.key === "P")) {
+                evento.preventDefault();
+                alternarVisibilidadePainel();
+            }
+        });
     }
 
     function observarLogDeCapturas() {
@@ -5751,22 +5806,44 @@
     }
 
     function formatarTempoRestante(ms) {
-        const totalSegundos = Math.floor(ms / 1000);
+        const totalSegundos = Math.max(0, Math.floor(ms / 1000));
         const horas = Math.floor(totalSegundos / 3600);
         const minutos = Math.floor((totalSegundos % 3600) / 60);
+        const segundos = totalSegundos % 60;
         if (horas > 0) {
             return `${horas}h ${minutos}m`;
         }
-        return `${minutos}m`;
+        if (minutos > 0) {
+            return `${minutos}m ${segundos}s`;
+        }
+        return `${segundos}s`;
     }
 
-    function registrarResgateDiarioHoje() {
-        try {
-            if (obterTempoRestanteResgate() === 0) {
-                localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
-            }
-        } catch (e) { }
-        atualizarBannerResgateDiario();
+    function extrairTempoMsDeTexto(texto) {
+        if (!texto) return 0;
+        // Padrão 14:30:15 (hh:mm:ss)
+        const matchHMS = texto.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+        if (matchHMS) {
+            const h = parseInt(matchHMS[1], 10);
+            const m = parseInt(matchHMS[2], 10);
+            const s = parseInt(matchHMS[3], 10);
+            return ((h * 3600) + (m * 60) + s) * 1000;
+        }
+        // Padrão 14h 30m ou 14h
+        const matchHM = texto.match(/(\d{1,2})\s*h\s*(?:(\d{1,2})\s*m)?/i);
+        if (matchHM) {
+            const h = parseInt(matchHM[1], 10);
+            const m = matchHM[2] ? parseInt(matchHM[2], 10) : 0;
+            return ((h * 3600) + (m * 60)) * 1000;
+        }
+        // Padrão 45m 12s ou 45m
+        const matchMS = texto.match(/(\d{1,2})\s*m\s*(?:(\d{1,2})\s*s)?/i);
+        if (matchMS) {
+            const m = parseInt(matchMS[1], 10);
+            const s = matchMS[2] ? parseInt(matchMS[2], 10) : 0;
+            return ((m * 60) + s) * 1000;
+        }
+        return 0;
     }
 
     function limparResgateDiarioHoje() {
@@ -5779,17 +5856,6 @@
     function atualizarBannerResgateDiario() {
         const banner = document.getElementById("daily-gift-banner");
         if (!banner) return;
-
-        const btn = document.querySelector("button.dg-resgatar");
-        if (btn) {
-            const text = (btn.innerText || "").toLowerCase();
-            const isDisabled = btn.hasAttribute("disabled") || btn.disabled || text.includes("coletado");
-            if (!isDisabled) {
-                limparResgateDiarioHoje();
-            } else if (obterTempoRestanteResgate() === 0) {
-                registrarResgateDiarioHoje();
-            }
-        }
 
         const restante = obterTempoRestanteResgate();
 
@@ -5828,36 +5894,46 @@
         function verificarBotaoResgate() {
             const btn = document.querySelector("button.dg-resgatar");
             if (btn) {
-                const text = (btn.innerText || "").toLowerCase();
-                const isDisabled = btn.hasAttribute("disabled") || btn.disabled || text.includes("coletado");
-                if (isDisabled) {
-                    registrarResgateDiarioHoje();
-                } else {
+                const text = btn.innerText || btn.textContent || "";
+                const textLower = text.toLowerCase();
+                const isDisabled = btn.hasAttribute("disabled") || btn.disabled || textLower.includes("coletado") || textLower.includes("aguarde");
+
+                if (!isDisabled) {
                     limparResgateDiarioHoje();
-                    if (!btn.dataset.pokedexObserved) {
-                        btn.dataset.pokedexObserved = "true";
-                        btn.addEventListener("click", () => {
-                            try {
-                                localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
-                            } catch (e) { }
-                            setTimeout(atualizarBannerResgateDiario, 300);
-                        });
+                } else {
+                    const tempoExtraido = extrairTempoMsDeTexto(text);
+                    if (tempoExtraido > 0) {
+                        const tsSincronizado = Date.now() - (COOLDOWN_24H_MS - tempoExtraido);
+                        try {
+                            localStorage.setItem(DAILY_GIFT_KEY, String(tsSincronizado));
+                        } catch (e) { }
                     }
                 }
-            } else {
-                atualizarBannerResgateDiario();
+
+                if (!btn.dataset.pokedexObserved) {
+                    btn.dataset.pokedexObserved = "true";
+                    btn.addEventListener("click", () => {
+                        try {
+                            localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
+                        } catch (e) { }
+                        setTimeout(atualizarBannerResgateDiario, 100);
+                    });
+                }
             }
         }
 
-        // Verificação periódica ultraleve (3s) com zero impacto de CPU
-        setInterval(verificarBotaoResgate, 3000);
+        // Verificação periódica da janela do jogo (2s)
+        setInterval(verificarBotaoResgate, 2000);
+
+        // Atualização em tempo real do timer na UI (1s) baixando conforme o tempo passa
+        setInterval(atualizarBannerResgateDiario, 1000);
 
         document.addEventListener("click", (e) => {
             if (e.target?.closest("button.dg-resgatar")) {
                 try {
                     localStorage.setItem(DAILY_GIFT_KEY, String(Date.now()));
                 } catch (err) { }
-                setTimeout(verificarBotaoResgate, 300);
+                setTimeout(atualizarBannerResgateDiario, 100);
             }
         });
 
@@ -5881,8 +5957,19 @@
                     <span style="font-size: 11px;">✨</span>
                     <strong style="color: #ffe0b2; font-size: 9.5px; white-space: nowrap;">SHINY!</strong>
                 </div>
-                <button id="btn-limpar-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; flex-shrink: 0;">OK</button>
+                <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                    <button id="btn-tocar-som-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none;" title="Tocar som do Shiny (Legends Arceus)">🔊</button>
+                    <button id="btn-limpar-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; flex-shrink: 0;">OK</button>
+                </div>
             `;
+
+            const btnSom = banner.querySelector("#btn-tocar-som-shiny");
+            if (btnSom) {
+                btnSom.onclick = (e) => {
+                    e.stopPropagation();
+                    tocarSomShiny(true);
+                };
+            }
 
             const btnLimpar = banner.querySelector("#btn-limpar-shiny");
             if (btnLimpar) {
@@ -5901,7 +5988,7 @@
             banner.style.boxShadow = "none";
             banner.style.cursor = "default";
             banner.onclick = null;
-            banner.title = "O detector de Shiny está monitorando os dados do mapa via WebSocket. Clique no reset (🔄) para zerar a contagem.";
+            banner.title = "O detector de Shiny está monitorando os dados do mapa via WebSocket. Clique no som (🔊) para testar ou no reset (🔄) para zerar a contagem.";
             banner.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden;">
                     <span style="font-size: 11px; opacity: 0.8;">✨</span>
@@ -5909,10 +5996,19 @@
                     ${countBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                    <button id="btn-testar-som-shiny" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Testar som do Shiny (Legends Arceus)">🔊</button>
                     ${contadorShinies > 0 ? `<button id="btn-reset-shiny-counter" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Zerar contador">🔄</button>` : ""}
                     <span style="color: #818cf8; font-size: 8.5px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px;">Ativo</span>
                 </div>
             `;
+
+            const btnTestar = banner.querySelector("#btn-testar-som-shiny");
+            if (btnTestar) {
+                btnTestar.onclick = (e) => {
+                    e.stopPropagation();
+                    tocarSomShiny(true);
+                };
+            }
 
             const btnReset = banner.querySelector("#btn-reset-shiny-counter");
             if (btnReset) {
