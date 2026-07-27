@@ -110,6 +110,9 @@
             try {
                 localStorage.setItem(SHINY_COUNTER_KEY, String(contadorShinies));
             } catch (e) { }
+            if (typeof atualizarBannerDetectorShiny === "function") {
+                atualizarBannerDetectorShiny();
+            }
         }
     }
 
@@ -6623,9 +6626,11 @@
                 <div style="display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; animation: pulse 1s infinite alternate;">
                     <span style="font-size: 11px;">✨</span>
                     <strong style="color: #ffe0b2; font-size: 9.5px; white-space: nowrap;">SHINY!</strong>
+                    ${countBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
                     <button id="btn-tocar-som-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; opacity: ${soundOpacity};" title="${soundTitle}">${soundIcon}</button>
+                    ${contadorShinies > 0 ? `<button id="btn-reset-shiny-counter" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Zerar contador">🔄</button>` : ""}
                     <button id="btn-limpar-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; flex-shrink: 0;">OK</button>
                 </div>
             `;
@@ -6635,6 +6640,14 @@
                 btnSom.onclick = (e) => {
                     e.stopPropagation();
                     toggleSomShiny();
+                };
+            }
+
+            const btnResetActive = banner.querySelector("#btn-reset-shiny-counter");
+            if (btnResetActive) {
+                btnResetActive.onclick = (e) => {
+                    e.stopPropagation();
+                    zerarContadorShiny();
                 };
             }
 
