@@ -954,151 +954,98 @@
         itemsPanel.style.maxHeight = `calc(100vh - ${rect.top + 16}px)`;
     }
 
-    function carregarDadosItensPokepedia() {
+    async function carregarDadosItensPokepedia() {
         try {
-            const cache = localStorage.getItem("justpokedex-items-cache-v3");
+            const cache = localStorage.getItem("justpokedex-items-cache-v4");
             if (cache) {
                 const parsed = JSON.parse(cache);
-                if (Array.isArray(parsed) && parsed.length > 5) {
+                if (Array.isArray(parsed) && parsed.length > 50) {
                     listaItensGlobal = parsed;
+                    if (mostrarAbaItens) atualizarPainelItens();
                 }
             }
         } catch (e) { }
 
-        extrairItensDoDocumento(document);
-        garantirIframePokepedia();
-    }
-
-    function garantirIframePokepedia() {
-        let iframe = document.getElementById("justpokedex-items-iframe");
-        if (!iframe) {
-            iframe = document.createElement("iframe");
-            iframe.id = "justpokedex-items-iframe";
-            iframe.src = "/pokepedia/items";
-            iframe.style.position = "fixed";
-            iframe.style.top = "-9999px";
-            iframe.style.left = "-9999px";
-            iframe.style.width = "10px";
-            iframe.style.height = "10px";
-            iframe.style.opacity = "0";
-            iframe.style.pointerEvents = "none";
-            document.body.appendChild(iframe);
-
-            iframe.onload = () => {
-                setTimeout(() => {
-                    processarIframePokepedia(iframe);
-                }, 800);
-            };
-        } else {
-            processarIframePokepedia(iframe);
-        }
-    }
-
-    function processarIframePokepedia(iframe) {
         try {
-            const doc = iframe.contentDocument || iframe.contentWindow.document;
-            if (doc) {
-                extrairItensDoDocumento(doc);
-            }
-        } catch (e) { }
-    }
+            const [resItems, resCreatures] = await Promise.all([
+                fetch("/game/items.json"),
+                fetch("/game/creatures.json")
+            ]);
 
-    function extrairItensDoDocumento(doc) {
-        if (!doc) return;
-        const itemRows = doc.querySelectorAll("button.pp-itemrow, .pp-itemrow, .pp-items_list button");
-        if (!itemRows || itemRows.length === 0) return;
+            if (resItems.ok && resCreatures.ok) {
+                const itemsData = await resItems.json();
+                const creaturesData = await resCreatures.json();
 
-        const extraidos = [];
-        itemRows.forEach(row => {
-            const imgEl = row.querySelector("img");
-            let img = imgEl ? (imgEl.src || imgEl.getAttribute("src") || "") : "";
-            const bEl = row.querySelector("b");
-            const nome = bEl ? bEl.innerText.trim() : row.innerText.trim();
-            const pills = Array.from(row.querySelectorAll(".pp-pill")).map(p => p.innerText.trim());
-            const categoria = pills[0] || "LOOT";
-            const preco = pills[1] || "";
+                const rawItems = itemsData.items || [];
+                const creatures = (creaturesData.creatures || []).filter(c => c.pokeId < 10000);
 
-            if (nome && nome.length > 0) {
-                if (img && img.startsWith("/")) {
-                    img = window.location.origin + img;
-                }
-                extraidos.push({
-                    nome,
-                    categoria,
-                    preco,
-                    icone: img || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png`,
-                    dropadoPor: []
-                });
-            }
-        });
+                const dropsMap = new Map();
+                for (const creature of creatures) {
+                    for (const loot of (creature.loot || [])) {
+                        const itemKey = loot.name.toLowerCase().trim();
+                        if (!dropsMap.has(itemKey)) dropsMap.set(itemKey, []);
+                        const chanceVal = loot.chance / 1000;
+                        const chanceStr = chanceVal >= 1 ? `${chanceVal.toFixed(0)}%` : `${chanceVal.toFixed(2)}%`;
+                        const qtyStr = loot.minCount === loot.maxCount ? `x${loot.maxCount}` : `x${loot.minCount}–${loot.maxCount}`;
 
-        if (extraidos.length > 0) {
-            const mapaExistentes = new Map(listaItensGlobal.map(it => [it.nome.toLowerCase().trim(), it]));
-            const listaNova = extraidos.map(ex => {
-                const existente = mapaExistentes.get(ex.nome.toLowerCase().trim());
-                if (existente) {
-                    return {
-                        ...ex,
-                        dropadoPor: (existente.dropadoPor && existente.dropadoPor.length > 0) ? existente.dropadoPor : ex.dropadoPor,
-                        icone: (ex.icone && !ex.icone.includes("inventory.png")) ? ex.icone : existente.icone
-                    };
-                }
-                return ex;
-            });
-
-            listaItensGlobal = listaNova;
-            try {
-                localStorage.setItem("justpokedex-items-cache-v3", JSON.stringify(listaItensGlobal));
-            } catch (e) { }
-            if (mostrarAbaItens) atualizarPainelItens();
-        }
-    }
-
-    function carregarDropsDoItem(item) {
-        if (!item || (item.dropadoPor && item.dropadoPor.length > 0)) return;
-
-        const iframe = document.getElementById("justpokedex-items-iframe");
-        if (!iframe) return;
-
-        try {
-            const doc = iframe.contentDocument || iframe.contentWindow.document;
-            if (!doc) return;
-
-            const buttons = Array.from(doc.querySelectorAll("button.pp-itemrow, .pp-itemrow"));
-            const targetBtn = buttons.find(b => b.innerText.toLowerCase().includes(item.nome.toLowerCase()));
-
-            if (targetBtn) {
-                targetBtn.click();
-                setTimeout(() => {
-                    const lootItems = doc.querySelectorAll("aside.pp-items_detail ul.pp-loot li, .pp-items_detail ul.pp-loot li");
-                    if (lootItems.length > 0) {
-                        const drops = [];
-                        lootItems.forEach(li => {
-                            const nameEl = li.querySelector(".n") || li.querySelector("a");
-                            const qtyEl = li.querySelector(".q");
-                            const chanceEl = li.querySelector(".c");
-                            if (nameEl) {
-                                drops.push({
-                                    pokemon: nameEl.innerText.trim(),
-                                    quantidade: qtyEl ? qtyEl.innerText.trim() : "x1",
-                                    chance: chanceEl ? chanceEl.innerText.trim() : "1.00%"
-                                });
-                            }
+                        dropsMap.get(itemKey).push({
+                            pokemon: creature.name,
+                            id: creature.pokeId,
+                            chanceNum: chanceVal,
+                            chance: chanceStr,
+                            quantidade: qtyStr
                         });
-
-                        if (drops.length > 0) {
-                            item.dropadoPor = drops;
-                            try {
-                                localStorage.setItem("justpokedex-items-cache-v3", JSON.stringify(listaItensGlobal));
-                            } catch (e) { }
-                            if (itemSelecionado && itemSelecionado.nome === item.nome) {
-                                atualizarPainelItens();
-                            }
-                        }
                     }
-                }, 350);
+                }
+
+                const catMap = {
+                    stone: "PEDRA",
+                    heal: "CURA",
+                    revive: "REVIVER",
+                    loot: "LOOT",
+                    ball: "BALL",
+                    misc: "DIVERSOS",
+                    item: "ITEM",
+                    vitamin: "VITAMINA",
+                    energy: "ENERGIA",
+                    card: "SHINY CARD",
+                    clan: "CLAN",
+                    tm: "TM"
+                };
+
+                const itensProcessados = rawItems.map(item => {
+                    let iconUrl = item.icon || "";
+                    if (iconUrl.startsWith("/")) {
+                        iconUrl = window.location.origin + iconUrl;
+                    }
+
+                    const drops = (dropsMap.get(item.name.toLowerCase().trim()) || [])
+                        .sort((a, b) => b.chanceNum - a.chanceNum);
+
+                    const precoFormatado = item.npcPrice ? `$ ${item.npcPrice.toLocaleString('pt-BR')}` : "";
+
+                    return {
+                        id: item.id,
+                        nome: item.name,
+                        categoria: catMap[(item.category || "item").toLowerCase()] || (item.category || "ITEM").toUpperCase(),
+                        rawCategory: (item.category || "item").toLowerCase(),
+                        preco: precoFormatado,
+                        icone: iconUrl,
+                        dropadoPor: drops
+                    };
+                });
+
+                if (itensProcessados.length > 0) {
+                    listaItensGlobal = itensProcessados;
+                    try {
+                        localStorage.setItem("justpokedex-items-cache-v4", JSON.stringify(listaItensGlobal));
+                    } catch (e) { }
+                    if (mostrarAbaItens) atualizarPainelItens();
+                }
             }
-        } catch (e) { }
+        } catch (err) {
+            console.error("[JustPokédex] Erro ao carregar itens de /game/items.json:", err);
+        }
     }
 
     function selecionarPokemonDoDrop(nomePokemon) {
@@ -1114,17 +1061,16 @@
         const itemsPanel = document.getElementById("items-panel");
         if (!itemsPanel || itemsPanel.style.display === "none") return;
 
-        const categorias = ["TODAS", "LOOT", "PEDRA", "CURA", "REVIVER", "CLAN", "TM", "SHINY CARD"];
+        const categorias = ["TODAS", "LOOT", "PEDRA", "CURA", "REVIVER", "BALL", "TM", "SHINY CARD", "DIVERSOS"];
 
         let htmlHeader = `
             <div class="items-header">
-                <strong style="color: #ffe984; font-size: 12px; display: flex; align-items: center; gap: 5px;">🎒 Poképedia — Itens & Drops</strong>
+                <strong style="color: #ffe984; font-size: 12px; display: flex; align-items: center; gap: 5px;">🎒 Poképedia — Itens & Drops (${listaItensGlobal.length})</strong>
                 <button id="btn-fechar-itens" type="button" style="background: transparent; border: none; color: #a2b4cf; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;" title="Fechar">✕</button>
             </div>
         `;
 
         if (itemSelecionado) {
-            carregarDropsDoItem(itemSelecionado);
             let dropsHtml = "";
             if (itemSelecionado.dropadoPor && itemSelecionado.dropadoPor.length > 0) {
                 dropsHtml = itemSelecionado.dropadoPor.map(d => `
@@ -1139,7 +1085,7 @@
             } else {
                 dropsHtml = `
                     <div style="padding: 20px; text-align: center; color: #64748b; font-size: 11px;">
-                        Carregando ou nenhum Pokémon cadastrado como drop para este item.
+                        Nenhum Pokémon cadastrado como drop para este item.
                     </div>
                 `;
             }
@@ -1191,7 +1137,11 @@
             const filtroLower = filtroBuscaItem.toLowerCase().trim();
             const itensFiltrados = listaItensGlobal.filter(item => {
                 const bateNome = !filtroLower || item.nome.toLowerCase().includes(filtroLower);
-                const bateCat = categoriaItemSelecionada === "TODAS" || (item.categoria && item.categoria.toUpperCase().includes(categoriaItemSelecionada));
+                const catUpper = (item.categoria || "").toUpperCase();
+                const rawCatUpper = (item.rawCategory || "").toUpperCase();
+                const bateCat = categoriaItemSelecionada === "TODAS" ||
+                                catUpper.includes(categoriaItemSelecionada) ||
+                                rawCatUpper.includes(categoriaItemSelecionada);
                 return bateNome && bateCat;
             });
 
