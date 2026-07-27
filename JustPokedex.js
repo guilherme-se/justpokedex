@@ -942,10 +942,17 @@
         if (!mainPanel || !itemsPanel || itemsPanel.style.display === "none") return;
 
         const rect = mainPanel.getBoundingClientRect();
-        let left = rect.right + 8;
+        const movesPanel = document.getElementById("moves-panel");
+        const movesAberto = movesPanel && movesPanel.style.display !== "none";
 
-        if (left + 360 > window.innerWidth - 8) {
+        let left;
+        if (!movesAberto && (rect.right + 8 + 360 <= window.innerWidth - 8)) {
+            left = rect.right + 8;
+        } else {
             left = rect.left - 368;
+            if (left < 8) {
+                left = Math.min(rect.right + 8, window.innerWidth - 368);
+            }
         }
 
         itemsPanel.style.left = `${Math.max(8, left)}px`;
@@ -1657,6 +1664,7 @@
         painel.style.right = "auto";
 
         atualizarPosicaoPainelMoves();
+        atualizarPosicaoPainelItens();
     }
 
     function atualizarBotaoMinimizar(painel) {
@@ -1723,6 +1731,16 @@
             mostrarAbaMoves = false;
             const btn = document.querySelector('[data-tab="moves"]');
             if (btn) btn.classList.remove("active");
+
+            const itemsPanelEl = document.getElementById("items-panel");
+            if (itemsPanelEl) itemsPanelEl.style.display = "none";
+            mostrarAbaItens = false;
+            const btnItems = document.getElementById("toggle-items");
+            if (btnItems) {
+                btnItems.style.opacity = "1";
+                btnItems.style.background = "";
+                btnItems.style.border = "";
+            }
         }
     }
 
@@ -1791,6 +1809,7 @@
             painel.style.top = `${top}px`;
 
             atualizarPosicaoPainelMoves();
+            atualizarPosicaoPainelItens();
         });
 
         document.addEventListener("mouseup", () => {
@@ -1807,6 +1826,8 @@
         window.addEventListener("resize", () => {
             limitarPainelNaTela(painel);
             salvarEstadoPainel(painel);
+            atualizarPosicaoPainelMoves();
+            atualizarPosicaoPainelItens();
         });
     }
 
@@ -2398,6 +2419,7 @@
         carregarAnalise(pokemon);
         atualizarPainelMoves();
         atualizarPosicaoPainelMoves();
+        atualizarPosicaoPainelItens();
         atualizarPainelComparacao();
     }
 
@@ -4137,6 +4159,7 @@
         carregarAnalise(pokemon);
         atualizarPainelMoves();
         atualizarPosicaoPainelMoves();
+        atualizarPosicaoPainelItens();
         atualizarPainelComparacao();
 
         console.log(
@@ -6294,6 +6317,7 @@
         carregarAnalise(pokemon);
         atualizarPainelMoves();
         atualizarPosicaoPainelMoves();
+        atualizarPosicaoPainelItens();
         atualizarPainelComparacao();
 
         console.log("[Poké Leitor] Pokémon capturado do Mercado Global:", pokemon);
