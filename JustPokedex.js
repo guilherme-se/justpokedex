@@ -766,6 +766,421 @@
         movesPanel.innerHTML = html;
     }
 
+    let mostrarAbaItens = false;
+    let categoriaItemSelecionada = "TODAS";
+    let itemSelecionado = null;
+    let filtroBuscaItem = "";
+    let listaItensGlobal = [
+        {
+            nome: "Air Tank",
+            categoria: "LOOT",
+            preco: "$ 1.000",
+            icone: "https://pokexguides.com/images/items/drops/Air Tank.png",
+            dropadoPor: [
+                { pokemon: "Golduck", quantidade: "x1", chance: "0.90%" },
+                { pokemon: "Gyarados", quantidade: "x1", chance: "0.65%" },
+                { pokemon: "Seadra", quantidade: "x1", chance: "0.50%" },
+                { pokemon: "Seaking", quantidade: "x1", chance: "0.50%" },
+                { pokemon: "Tentacruel", quantidade: "x1", chance: "0.50%" }
+            ]
+        },
+        {
+            nome: "Ancient Stone",
+            categoria: "PEDRA",
+            preco: "$ 50.000",
+            icone: "https://pokexguides.com/images/items/drops/Ancient Stone.png",
+            dropadoPor: [
+                { pokemon: "Aerodactyl", quantidade: "x1", chance: "0.10%" },
+                { pokemon: "Kabutops", quantidade: "x1", chance: "0.15%" },
+                { pokemon: "Omastar", quantidade: "x1", chance: "0.15%" }
+            ]
+        },
+        {
+            nome: "Armadillo Claw",
+            categoria: "LOOT",
+            preco: "$ 147",
+            icone: "https://pokexguides.com/images/items/drops/Armadillo Claw.png",
+            dropadoPor: [
+                { pokemon: "Sandslash", quantidade: "x1", chance: "1.20%" },
+                { pokemon: "Sandshrew", quantidade: "x1", chance: "0.80%" }
+            ]
+        },
+        {
+            nome: "Bag of Pollen",
+            categoria: "LOOT",
+            preco: "$ 40",
+            icone: "https://pokexguides.com/images/items/drops/Bag of Pollen.png",
+            dropadoPor: [
+                { pokemon: "Butterfree", quantidade: "x1", chance: "2.00%" },
+                { pokemon: "Vileplume", quantidade: "x1", chance: "1.50%" },
+                { pokemon: "Beedrill", quantidade: "x1", chance: "1.80%" }
+            ]
+        },
+        {
+            nome: "Band Aid",
+            categoria: "LOOT",
+            preco: "$ 1",
+            icone: "https://pokexguides.com/images/items/drops/Band Aid.png",
+            dropadoPor: [
+                { pokemon: "Chansey", quantidade: "x1", chance: "2.50%" },
+                { pokemon: "Blissey", quantidade: "x1", chance: "2.00%" }
+            ]
+        },
+        {
+            nome: "Bat Wing",
+            categoria: "LOOT",
+            preco: "$ 15",
+            icone: "https://pokexguides.com/images/items/drops/Bat Wing.png",
+            dropadoPor: [
+                { pokemon: "Zubat", quantidade: "x1", chance: "3.00%" },
+                { pokemon: "Golbat", quantidade: "x1", chance: "2.50%" },
+                { pokemon: "Crobat", quantidade: "x1", chance: "2.00%" }
+            ]
+        },
+        {
+            nome: "Fire Stone",
+            categoria: "PEDRA",
+            preco: "$ 10.000",
+            icone: "https://pokexguides.com/images/items/drops/Fire Stone.png",
+            dropadoPor: [
+                { pokemon: "Charizard", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Magmar", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Arcanine", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Ninetales", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Flareon", quantidade: "x1", chance: "0.30%" }
+            ]
+        },
+        {
+            nome: "Water Stone",
+            categoria: "PEDRA",
+            preco: "$ 10.000",
+            icone: "https://pokexguides.com/images/items/drops/Water Stone.png",
+            dropadoPor: [
+                { pokemon: "Blastoise", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Poliwrath", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Vaporeon", quantidade: "x1", chance: "0.30%" },
+                { pokemon: "Starmie", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Cloyster", quantidade: "x1", chance: "0.25%" }
+            ]
+        },
+        {
+            nome: "Leaf Stone",
+            categoria: "PEDRA",
+            preco: "$ 10.000",
+            icone: "https://pokexguides.com/images/items/drops/Leaf Stone.png",
+            dropadoPor: [
+                { pokemon: "Venusaur", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Exeggutor", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Victreebel", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Vileplume", quantidade: "x1", chance: "0.25%" }
+            ]
+        },
+        {
+            nome: "Thunder Stone",
+            categoria: "PEDRA",
+            preco: "$ 10.000",
+            icone: "https://pokexguides.com/images/items/drops/Thunder Stone.png",
+            dropadoPor: [
+                { pokemon: "Raichu", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Electabuzz", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Jolteon", quantidade: "x1", chance: "0.30%" },
+                { pokemon: "Magneton", quantidade: "x1", chance: "0.25%" }
+            ]
+        },
+        {
+            nome: "Venom Stone",
+            categoria: "PEDRA",
+            preco: "$ 10.000",
+            icone: "https://pokexguides.com/images/items/drops/Venom Stone.png",
+            dropadoPor: [
+                { pokemon: "Gengar", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Arbok", quantidade: "x1", chance: "0.30%" },
+                { pokemon: "Weezing", quantidade: "x1", chance: "0.25%" },
+                { pokemon: "Nidoking", quantidade: "x1", chance: "0.20%" },
+                { pokemon: "Nidoqueen", quantidade: "x1", chance: "0.20%" }
+            ]
+        },
+        {
+            nome: "Shiny Card",
+            categoria: "SHINY CARD",
+            preco: "$ 100.000",
+            icone: "https://pokexguides.com/images/items/drops/Shiny Card.png",
+            dropadoPor: [
+                { pokemon: "Shiny Charizard", quantidade: "x1", chance: "1.00%" },
+                { pokemon: "Shiny Blastoise", quantidade: "x1", chance: "1.00%" },
+                { pokemon: "Shiny Venusaur", quantidade: "x1", chance: "1.00%" },
+                { pokemon: "Shiny Dragonite", quantidade: "x1", chance: "0.80%" },
+                { pokemon: "Shiny Gengar", quantidade: "x1", chance: "0.90%" }
+            ]
+        }
+    ];
+
+    function alternarPainelItens() {
+        const itemsPanel = document.getElementById("items-panel");
+        const btnItems = document.getElementById("toggle-items");
+        if (!itemsPanel) return;
+
+        mostrarAbaItens = !mostrarAbaItens;
+        itemsPanel.style.display = mostrarAbaItens ? "flex" : "none";
+
+        if (btnItems) {
+            btnItems.style.opacity = mostrarAbaItens ? "1" : "0.7";
+            btnItems.style.background = mostrarAbaItens ? "rgba(241,198,68,0.25)" : "";
+            btnItems.style.border = mostrarAbaItens ? "1px solid rgba(241,198,68,0.5)" : "";
+        }
+
+        if (mostrarAbaItens) {
+            carregarDadosItensPokepedia();
+            atualizarPainelItens();
+            atualizarPosicaoPainelItens();
+        }
+    }
+
+    function atualizarPosicaoPainelItens() {
+        const mainPanel = document.getElementById(CONFIG.panelId);
+        const itemsPanel = document.getElementById("items-panel");
+        if (!mainPanel || !itemsPanel || itemsPanel.style.display === "none") return;
+
+        const rect = mainPanel.getBoundingClientRect();
+        let left = rect.right + 8;
+
+        if (left + 360 > window.innerWidth - 8) {
+            left = rect.left - 368;
+        }
+
+        itemsPanel.style.left = `${Math.max(8, left)}px`;
+        itemsPanel.style.top = `${rect.top}px`;
+        itemsPanel.style.height = "auto";
+        itemsPanel.style.maxHeight = `calc(100vh - ${rect.top + 16}px)`;
+    }
+
+    async function carregarDadosItensPokepedia() {
+        try {
+            const cache = localStorage.getItem("justpokedex-items-cache");
+            if (cache) {
+                const parsed = JSON.parse(cache);
+                if (Array.isArray(parsed) && parsed.length > 5) {
+                    listaItensGlobal = parsed;
+                }
+            }
+        } catch (e) { }
+
+        try {
+            const res = await fetch("/pokepedia/items");
+            if (res.ok) {
+                const htmlText = await res.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, "text/html");
+                const itemRows = doc.querySelectorAll("button.pp-itemrow, .pp-itemrow");
+                if (itemRows.length > 0) {
+                    const extraidos = [];
+                    itemRows.forEach(row => {
+                        const img = row.querySelector("img")?.src || "";
+                        const bEl = row.querySelector("b");
+                        const nome = bEl ? bEl.innerText.trim() : row.innerText.trim();
+                        const pills = Array.from(row.querySelectorAll(".pp-pill")).map(p => p.innerText.trim());
+                        const categoria = pills[0] || "LOOT";
+                        const preco = pills[1] || "";
+                        extraidos.push({
+                            nome,
+                            categoria,
+                            preco,
+                            icone: img || `https://pokexguides.com/images/items/drops/${encodeURIComponent(nome)}.png`,
+                            dropadoPor: []
+                        });
+                    });
+                    if (extraidos.length > 0) {
+                        listaItensGlobal = extraidos;
+                        localStorage.setItem("justpokedex-items-cache", JSON.stringify(listaItensGlobal));
+                        if (mostrarAbaItens) atualizarPainelItens();
+                    }
+                }
+            }
+        } catch (e) { }
+    }
+
+    function selecionarPokemonDoDrop(nomePokemon) {
+        if (!nomePokemon) return;
+        const p = encontrarPokemonPorNome(nomePokemon);
+        if (p) {
+            exibirPokemon(p);
+            trocarAba("leitor");
+        }
+    }
+
+    function atualizarPainelItens() {
+        const itemsPanel = document.getElementById("items-panel");
+        if (!itemsPanel || itemsPanel.style.display === "none") return;
+
+        const categorias = ["TODAS", "LOOT", "PEDRA", "CURA", "REVIVER", "CLAN", "TM", "SHINY CARD"];
+
+        let htmlHeader = `
+            <div class="items-header">
+                <strong style="color: #ffe984; font-size: 12px; display: flex; align-items: center; gap: 5px;">🎒 Poképedia — Itens & Drops</strong>
+                <button id="btn-fechar-itens" type="button" style="background: transparent; border: none; color: #a2b4cf; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;" title="Fechar">✕</button>
+            </div>
+        `;
+
+        if (itemSelecionado) {
+            let dropsHtml = "";
+            if (itemSelecionado.dropadoPor && itemSelecionado.dropadoPor.length > 0) {
+                dropsHtml = itemSelecionado.dropadoPor.map(d => `
+                    <div class="drop-poke-row" data-poke="${escapeHtml(d.pokemon)}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; cursor: pointer; transition: background 0.15s ease;">
+                        <span style="color: #93c5fd; font-size: 11px; font-weight: bold; text-decoration: underline;" title="Clique para abrir na Pokédex">🐾 ${escapeHtml(d.pokemon)}</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: #94a3b8; font-size: 10px;">${escapeHtml(d.quantidade || "x1")}</span>
+                            <span style="color: #4ade80; font-weight: bold; font-size: 10.5px; background: rgba(74,222,128,0.1); padding: 1px 6px; border-radius: 4px;">${escapeHtml(d.chance)}</span>
+                        </div>
+                    </div>
+                `).join("");
+            } else {
+                dropsHtml = `
+                    <div style="padding: 20px; text-align: center; color: #64748b; font-size: 11px;">
+                        Nenhum Pokémon cadastrado como drop para este item no momento.
+                    </div>
+                `;
+            }
+
+            itemsPanel.innerHTML = `
+                ${htmlHeader}
+                <div class="items-body" style="padding: 10px; display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-voltar-lista-itens" style="align-self: flex-start; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 10px; font-weight: bold; padding: 4px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                        ‹ Voltar para a lista de itens
+                    </button>
+                    
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(241,198,68,0.08); border: 1px solid rgba(241,198,68,0.3); border-radius: 10px;">
+                        <img src="${escapeHtml(itemSelecionado.icone)}" style="width: 36px; height: 36px; object-fit: contain;" onerror="this.src='/assets/topmenu/inventory.png'">
+                        <div style="flex: 1; min-width: 0;">
+                            <strong style="color: #fff; font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(itemSelecionado.nome)}</strong>
+                            <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                                <span style="background: rgba(255,255,255,0.1); color: #cbd5e1; font-size: 9px; font-weight: bold; padding: 1px 6px; border-radius: 4px;">${escapeHtml(itemSelecionado.categoria)}</span>
+                                ${itemSelecionado.preco ? `<span style="background: rgba(46,125,50,0.3); border: 1px solid rgba(76,175,80,0.4); color: #81c784; font-size: 9px; font-weight: bold; padding: 1px 6px; border-radius: 4px;">${escapeHtml(itemSelecionado.preco)} (NPC)</span>` : ""}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="font-size: 9px; font-weight: bold; letter-spacing: 0.8px; text-transform: uppercase; color: #f1c644; margin-top: 4px; display: flex; align-items: center; gap: 4px;">
+                        <span>⚡ DROPADO POR (${itemSelecionado.dropadoPor ? itemSelecionado.dropadoPor.length : 0})</span>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto;">
+                        ${dropsHtml}
+                    </div>
+                </div>
+            `;
+
+            const btnVoltar = itemsPanel.querySelector("#btn-voltar-lista-itens");
+            if (btnVoltar) {
+                btnVoltar.onclick = () => {
+                    itemSelecionado = null;
+                    atualizarPainelItens();
+                };
+            }
+
+            const dropPokeRows = itemsPanel.querySelectorAll(".drop-poke-row");
+            dropPokeRows.forEach(row => {
+                row.onclick = () => {
+                    const nomePoke = row.getAttribute("data-poke");
+                    if (nomePoke) selecionarPokemonDoDrop(nomePoke);
+                };
+            });
+        } else {
+            const filtroLower = filtroBuscaItem.toLowerCase().trim();
+            const itensFiltrados = listaItensGlobal.filter(item => {
+                const bateNome = !filtroLower || item.nome.toLowerCase().includes(filtroLower);
+                const bateCat = categoriaItemSelecionada === "TODAS" || (item.categoria && item.categoria.toUpperCase().includes(categoriaItemSelecionada));
+                return bateNome && bateCat;
+            });
+
+            itemsPanel.innerHTML = `
+                ${htmlHeader}
+                <div style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.2);">
+                    <div style="position: relative; display: flex; align-items: center; gap: 6px; background: #111722; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;">
+                        <span style="color: #66758a; font-size: 12px;">🔍</span>
+                        <input type="text" id="input-busca-item" placeholder="Buscar item por nome (ex: Air Tank)..." value="${escapeHtml(filtroBuscaItem)}" style="flex: 1; background: transparent; border: none; color: #fff; font-size: 11px; outline: none; padding: 0;">
+                        ${filtroBuscaItem ? `<button id="btn-limpar-busca-item" style="background: transparent; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 0;">×</button>` : ""}
+                    </div>
+                    <div style="display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin;">
+                        ${categorias.map(cat => `
+                            <button class="pill-cat-filter" data-cat="${cat}" style="background: ${categoriaItemSelecionada === cat ? "rgba(241,198,68,0.25)" : "rgba(255,255,255,0.05)"}; border: 1px solid ${categoriaItemSelecionada === cat ? "#f1c644" : "rgba(255,255,255,0.08)"}; color: ${categoriaItemSelecionada === cat ? "#ffe984" : "#94a3b8"}; font-size: 9px; font-weight: bold; padding: 2px 7px; border-radius: 12px; cursor: pointer; white-space: nowrap;">
+                                ${cat}
+                            </button>
+                        `).join("")}
+                    </div>
+                </div>
+
+                <div class="items-body" style="padding: 10px; max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">
+                    ${itensFiltrados.length > 0 ? itensFiltrados.map((item, idx) => `
+                        <div class="item-row-card" data-idx="${idx}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                <img src="${escapeHtml(item.icone)}" style="width: 24px; height: 24px; object-fit: contain;" onerror="this.src='/assets/topmenu/inventory.png'">
+                                <div style="min-width: 0;">
+                                    <strong style="color: #fff; font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.nome)}</strong>
+                                    <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+                                        <span style="background: rgba(255,255,255,0.08); color: #cbd5e1; font-size: 8px; font-weight: bold; padding: 0 4px; border-radius: 3px;">${escapeHtml(item.categoria)}</span>
+                                        ${item.preco ? `<span style="color: #81c784; font-size: 8px; font-weight: bold;">${escapeHtml(item.preco)}</span>` : ""}
+                                    </div>
+                                </div>
+                            </div>
+                            <span style="color: #64748b; font-size: 14px; font-weight: bold;">›</span>
+                        </div>
+                    `).join("") : `
+                        <div style="padding: 30px 10px; text-align: center; color: #64748b; font-size: 11px;">
+                            Nenhum item encontrado com "${escapeHtml(filtroBuscaItem)}".
+                        </div>
+                    `}
+                </div>
+            `;
+
+            const inputBusca = itemsPanel.querySelector("#input-busca-item");
+            if (inputBusca) {
+                inputBusca.oninput = (e) => {
+                    filtroBuscaItem = e.target.value;
+                    atualizarPainelItens();
+                    const newInp = itemsPanel.querySelector("#input-busca-item");
+                    if (newInp) {
+                        newInp.focus();
+                        newInp.setSelectionRange(newInp.value.length, newInp.value.length);
+                    }
+                };
+            }
+
+            const btnLimparBusca = itemsPanel.querySelector("#btn-limpar-busca-item");
+            if (btnLimparBusca) {
+                btnLimparBusca.onclick = () => {
+                    filtroBuscaItem = "";
+                    atualizarPainelItens();
+                };
+            }
+
+            const catButtons = itemsPanel.querySelectorAll(".pill-cat-filter");
+            catButtons.forEach(btn => {
+                btn.onclick = () => {
+                    categoriaItemSelecionada = btn.getAttribute("data-cat");
+                    atualizarPainelItens();
+                };
+            });
+
+            const itemCards = itemsPanel.querySelectorAll(".item-row-card");
+            itemCards.forEach(card => {
+                card.onclick = () => {
+                    const idx = parseInt(card.getAttribute("data-idx"), 10);
+                    if (itensFiltrados[idx]) {
+                        itemSelecionado = itensFiltrados[idx];
+                        atualizarPainelItens();
+                    }
+                };
+            });
+        }
+
+        const btnFechar = itemsPanel.querySelector("#btn-fechar-itens");
+        if (btnFechar) {
+            btnFechar.onclick = () => {
+                alternarPainelItens();
+            };
+        }
+    }
+
     function numero(texto) {
         if (
             texto === null ||
@@ -1399,6 +1814,15 @@
 
                 <div class="header-actions">
                     <button
+                        id="toggle-items"
+                        type="button"
+                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
+                        title="Poképedia — Itens & Drops (🎒)"
+                    >
+                        🎒
+                    </button>
+
+                    <button
                         id="toggle-shiny"
                         type="button"
                         style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
@@ -1590,6 +2014,11 @@
         movesPanel.style.display = "none";
         document.body.appendChild(movesPanel);
 
+        const itemsPanel = document.createElement("div");
+        itemsPanel.id = "items-panel";
+        itemsPanel.style.display = "none";
+        document.body.appendChild(itemsPanel);
+
         restaurarEstadoPainel(painel);
         atualizarBotaoMinimizar(painel);
         ativarArraste(painel);
@@ -1612,9 +2041,27 @@
                 const movesPanelEl = document.getElementById("moves-panel");
                 if (movesPanelEl) movesPanelEl.style.display = "none";
                 mostrarAbaMoves = false;
-                const btn = document.querySelector('[data-tab="moves"]');
-                if (btn) btn.classList.remove("active");
+                const btnMoves = document.querySelector('[data-tab="moves"]');
+                if (btnMoves) btnMoves.classList.remove("active");
+
+                const itemsPanelEl = document.getElementById("items-panel");
+                if (itemsPanelEl) itemsPanelEl.style.display = "none";
+                mostrarAbaItens = false;
+                const btnItems = document.getElementById("toggle-items");
+                if (btnItems) {
+                    btnItems.style.opacity = "1";
+                    btnItems.style.background = "";
+                    btnItems.style.border = "";
+                }
             });
+
+        const btnItems = document.getElementById("toggle-items");
+        if (btnItems) {
+            btnItems.addEventListener("click", evento => {
+                evento.stopPropagation();
+                alternarPainelItens();
+            });
+        }
 
         const btnShiny = document.getElementById("toggle-shiny");
         const btnDaily = document.getElementById("toggle-daily");
@@ -5587,6 +6034,70 @@
             .move-card.taken {
                 border-color: rgba(240,90,98,0.06);
                 background: rgba(240,90,98,0.02);
+            }
+
+            #items-panel {
+                position: fixed;
+                width: 360px;
+                z-index: 2147483646;
+                display: flex;
+                flex-direction: column;
+                color: #f7f7f7;
+                background:
+                    radial-gradient(
+                        circle at top right,
+                        rgba(241, 198, 68, 0.08),
+                        transparent 42%
+                    ),
+                    linear-gradient(
+                        165deg,
+                        #151923 0%,
+                        #0c0f16 55%,
+                        #080a0f 100%
+                    );
+                border: 2px solid #f1c644;
+                border-radius: 16px;
+                box-shadow:
+                    0 0 0 3px rgba(0,0,0,.75),
+                    0 14px 40px rgba(0,0,0,.7);
+                font-family: Arial, Helvetica, sans-serif;
+                overflow: hidden;
+                box-sizing: border-box;
+            }
+
+            #items-panel * {
+                box-sizing: border-box;
+            }
+
+            .items-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                min-height: 40px;
+                padding: 10px 12px;
+                background: linear-gradient(180deg, #1f2535, #121620);
+                border-bottom: 2px solid #151515;
+            }
+
+            .items-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 10px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                scrollbar-width: thin;
+                scrollbar-color: #f1c644 #111722;
+            }
+
+            .item-row-card:hover {
+                background: rgba(241,198,68,0.08) !important;
+                border-color: rgba(241,198,68,0.4) !important;
+            }
+
+            .drop-poke-row:hover {
+                background: rgba(147,197,253,0.1) !important;
+                border-color: rgba(147,197,253,0.3) !important;
             }
 
             .type-badge {

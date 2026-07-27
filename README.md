@@ -30,6 +30,7 @@
 | 🛡️ | **Efetividade de Tipos** | Matriz automática de fraquezas e vantagens de ataque ($2x, 4x$) e defesa (fraquezas e imunidades). |
 | 🚀 | **Atalho PIW Tools (Rota)** `✨ NOVO` | Botão na aba Pokémon que abre o simulador do **PIW Tools** (`_blank`) com status, nível e nome auto-preenchidos via GET. |
 | 🎁 | **Lembrete de Resgate Diário (24h)** `✨ NOVO` | Monitora a coleta do Daily Gift (`button.dg-resgatar`) e exibe contagem regressiva de 24h exatas a partir do momento da coleta. |
+| 🎒 | **Poképedia — Itens & Drops** `✨ NOVO` | Botão rápido (`🎒`) na barra superior que abre o painel Poképedia com todos os itens, busca em tempo real, filtros por categoria (Loot, Pedra, TM, Clan) e lista de Pokémons que dropam o item. |
 | ✨ | **Detector & Contador Shiny (WebSocket)** `✨ NOVO` | Intercepta pacotes do mapa em tempo real via WebSocket, reproduz o áudio clássico de Shiny do *Pokémon Legends: Arceus* (🔊), exibe alertas instantâneos ao detectar `"shiny": true` e mantém um contador persistente com botão de zerar (`🔄`). |
 | ⌨️ | **Atalho de Reabertura (Alt+P)** `✨ NOVO` | Atalho universal de teclado (`Alt + P`) para abrir ou fechar a Pokédex instantaneamente sem poluir a tela e sem precisar atualizar a página. |
 | 📊 | **Histórico & Cache Local** | Armazena análises recentes e respostas da API em `localStorage` para consultas instantâneas. |
