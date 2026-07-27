@@ -1625,6 +1625,24 @@
     function alternarMinimizado(painel) {
         painel.classList.toggle("minimized");
 
+        if (painel.classList.contains("minimized")) {
+            const movesPanelEl = document.getElementById("moves-panel");
+            if (movesPanelEl) movesPanelEl.style.display = "none";
+            mostrarAbaMoves = false;
+            const btnMoves = document.querySelector('[data-tab="moves"]');
+            if (btnMoves) btnMoves.classList.remove("active");
+
+            const itemsPanelEl = document.getElementById("items-panel");
+            if (itemsPanelEl) itemsPanelEl.style.display = "none";
+            mostrarAbaItens = false;
+            const btnItems = document.getElementById("toggle-items");
+            if (btnItems) {
+                btnItems.style.opacity = "1";
+                btnItems.style.background = "";
+                btnItems.style.border = "";
+            }
+        }
+
         atualizarBotaoMinimizar(painel);
         limitarPainelNaTela(painel);
         salvarEstadoPainel(painel);
@@ -4185,6 +4203,7 @@
             #${CONFIG.panelId}.minimized #panel-body,
             #${CONFIG.panelId}.minimized .led-area,
             #${CONFIG.panelId}.minimized .top-banners-grid,
+            #${CONFIG.panelId}.minimized #toggle-items,
             #${CONFIG.panelId}.minimized #toggle-shiny,
             #${CONFIG.panelId}.minimized #toggle-daily {
                 display: none !important;
