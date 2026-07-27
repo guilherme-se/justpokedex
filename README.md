@@ -39,7 +39,7 @@
 
 ## 📐 Explicação Matemática Detalhada (v3.0)
 
-> 🤝 **Créditos & Agradecimentos:** O cálculo de IV do JustPokédex é baseado nas fórmulas da ferramenta [PIW Tools](https://piwtools.vercel.app/), desenvolvida com a colaboração e apoio do **@bar** (criador da ferramenta).
+> 🤝 **Créditos & Agradecimentos:** O cálculo de IV do JustPokédex é baseado nas fórmulas da ferramenta [PIW Tools](https://piwtools.pages.dev/), desenvolvida com a colaboração e apoio do **@bar** (criador da ferramenta).
 
 ### 1️⃣ Equação Direta de Atributo
 

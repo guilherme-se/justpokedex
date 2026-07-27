@@ -525,7 +525,7 @@
     }
 
     function gerarUrlPIWTools(pokemon) {
-        if (!pokemon) return "https://piwtools.vercel.app/hunt";
+        if (!pokemon) return "https://piwtools.pages.dev/hunt";
         const nome = normalizarNomePokemon(pokemon.nome) || String(pokemon.nome || "").toLowerCase().trim();
         const level = pokemon.nivel ?? 1;
         const hp = pokemon.hp ?? 0;
@@ -534,7 +534,7 @@
         const spatk = pokemon.spa ?? 0;
         const spdef = pokemon.spd ?? 0;
         const speed = pokemon.vel ?? 0;
-        return `https://piwtools.vercel.app/hunt?pokemon=${encodeURIComponent(nome)}&level=${encodeURIComponent(level)}&hp=${encodeURIComponent(hp)}&atk=${encodeURIComponent(atk)}&def=${encodeURIComponent(def)}&spatk=${encodeURIComponent(spatk)}&spdef=${encodeURIComponent(spdef)}&speed=${encodeURIComponent(speed)}&tab=route&routeTarget=300`;
+        return `https://piwtools.pages.dev/hunt?pokemon=${encodeURIComponent(nome)}&level=${encodeURIComponent(level)}&hp=${encodeURIComponent(hp)}&atk=${encodeURIComponent(atk)}&def=${encodeURIComponent(def)}&spatk=${encodeURIComponent(spatk)}&spdef=${encodeURIComponent(spdef)}&speed=${encodeURIComponent(speed)}&tab=route&routeTarget=300`;
     }
 
     let creaturesData = [];
