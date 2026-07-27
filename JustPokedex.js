@@ -954,9 +954,9 @@
         itemsPanel.style.maxHeight = `calc(100vh - ${rect.top + 16}px)`;
     }
 
-    async function carregarDadosItensPokepedia() {
+    function carregarDadosItensPokepedia() {
         try {
-            const cache = localStorage.getItem("justpokedex-items-cache");
+            const cache = localStorage.getItem("justpokedex-items-cache-v3");
             if (cache) {
                 const parsed = JSON.parse(cache);
                 if (Array.isArray(parsed) && parsed.length > 5) {
@@ -965,36 +965,138 @@
             }
         } catch (e) { }
 
+        extrairItensDoDocumento(document);
+        garantirIframePokepedia();
+    }
+
+    function garantirIframePokepedia() {
+        let iframe = document.getElementById("justpokedex-items-iframe");
+        if (!iframe) {
+            iframe = document.createElement("iframe");
+            iframe.id = "justpokedex-items-iframe";
+            iframe.src = "/pokepedia/items";
+            iframe.style.position = "fixed";
+            iframe.style.top = "-9999px";
+            iframe.style.left = "-9999px";
+            iframe.style.width = "10px";
+            iframe.style.height = "10px";
+            iframe.style.opacity = "0";
+            iframe.style.pointerEvents = "none";
+            document.body.appendChild(iframe);
+
+            iframe.onload = () => {
+                setTimeout(() => {
+                    processarIframePokepedia(iframe);
+                }, 800);
+            };
+        } else {
+            processarIframePokepedia(iframe);
+        }
+    }
+
+    function processarIframePokepedia(iframe) {
         try {
-            const res = await fetch("/pokepedia/items");
-            if (res.ok) {
-                const htmlText = await res.text();
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(htmlText, "text/html");
-                const itemRows = doc.querySelectorAll("button.pp-itemrow, .pp-itemrow");
-                if (itemRows.length > 0) {
-                    const extraidos = [];
-                    itemRows.forEach(row => {
-                        const img = row.querySelector("img")?.src || "";
-                        const bEl = row.querySelector("b");
-                        const nome = bEl ? bEl.innerText.trim() : row.innerText.trim();
-                        const pills = Array.from(row.querySelectorAll(".pp-pill")).map(p => p.innerText.trim());
-                        const categoria = pills[0] || "LOOT";
-                        const preco = pills[1] || "";
-                        extraidos.push({
-                            nome,
-                            categoria,
-                            preco,
-                            icone: img || `https://pokexguides.com/images/items/drops/${encodeURIComponent(nome)}.png`,
-                            dropadoPor: []
-                        });
-                    });
-                    if (extraidos.length > 0) {
-                        listaItensGlobal = extraidos;
-                        localStorage.setItem("justpokedex-items-cache", JSON.stringify(listaItensGlobal));
-                        if (mostrarAbaItens) atualizarPainelItens();
-                    }
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (doc) {
+                extrairItensDoDocumento(doc);
+            }
+        } catch (e) { }
+    }
+
+    function extrairItensDoDocumento(doc) {
+        if (!doc) return;
+        const itemRows = doc.querySelectorAll("button.pp-itemrow, .pp-itemrow, .pp-items_list button");
+        if (!itemRows || itemRows.length === 0) return;
+
+        const extraidos = [];
+        itemRows.forEach(row => {
+            const imgEl = row.querySelector("img");
+            let img = imgEl ? (imgEl.src || imgEl.getAttribute("src") || "") : "";
+            const bEl = row.querySelector("b");
+            const nome = bEl ? bEl.innerText.trim() : row.innerText.trim();
+            const pills = Array.from(row.querySelectorAll(".pp-pill")).map(p => p.innerText.trim());
+            const categoria = pills[0] || "LOOT";
+            const preco = pills[1] || "";
+
+            if (nome && nome.length > 0) {
+                if (img && img.startsWith("/")) {
+                    img = window.location.origin + img;
                 }
+                extraidos.push({
+                    nome,
+                    categoria,
+                    preco,
+                    icone: img || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png`,
+                    dropadoPor: []
+                });
+            }
+        });
+
+        if (extraidos.length > 0) {
+            const mapaExistentes = new Map(listaItensGlobal.map(it => [it.nome.toLowerCase().trim(), it]));
+            const listaNova = extraidos.map(ex => {
+                const existente = mapaExistentes.get(ex.nome.toLowerCase().trim());
+                if (existente) {
+                    return {
+                        ...ex,
+                        dropadoPor: (existente.dropadoPor && existente.dropadoPor.length > 0) ? existente.dropadoPor : ex.dropadoPor,
+                        icone: (ex.icone && !ex.icone.includes("inventory.png")) ? ex.icone : existente.icone
+                    };
+                }
+                return ex;
+            });
+
+            listaItensGlobal = listaNova;
+            try {
+                localStorage.setItem("justpokedex-items-cache-v3", JSON.stringify(listaItensGlobal));
+            } catch (e) { }
+            if (mostrarAbaItens) atualizarPainelItens();
+        }
+    }
+
+    function carregarDropsDoItem(item) {
+        if (!item || (item.dropadoPor && item.dropadoPor.length > 0)) return;
+
+        const iframe = document.getElementById("justpokedex-items-iframe");
+        if (!iframe) return;
+
+        try {
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!doc) return;
+
+            const buttons = Array.from(doc.querySelectorAll("button.pp-itemrow, .pp-itemrow"));
+            const targetBtn = buttons.find(b => b.innerText.toLowerCase().includes(item.nome.toLowerCase()));
+
+            if (targetBtn) {
+                targetBtn.click();
+                setTimeout(() => {
+                    const lootItems = doc.querySelectorAll("aside.pp-items_detail ul.pp-loot li, .pp-items_detail ul.pp-loot li");
+                    if (lootItems.length > 0) {
+                        const drops = [];
+                        lootItems.forEach(li => {
+                            const nameEl = li.querySelector(".n") || li.querySelector("a");
+                            const qtyEl = li.querySelector(".q");
+                            const chanceEl = li.querySelector(".c");
+                            if (nameEl) {
+                                drops.push({
+                                    pokemon: nameEl.innerText.trim(),
+                                    quantidade: qtyEl ? qtyEl.innerText.trim() : "x1",
+                                    chance: chanceEl ? chanceEl.innerText.trim() : "1.00%"
+                                });
+                            }
+                        });
+
+                        if (drops.length > 0) {
+                            item.dropadoPor = drops;
+                            try {
+                                localStorage.setItem("justpokedex-items-cache-v3", JSON.stringify(listaItensGlobal));
+                            } catch (e) { }
+                            if (itemSelecionado && itemSelecionado.nome === item.nome) {
+                                atualizarPainelItens();
+                            }
+                        }
+                    }
+                }, 350);
             }
         } catch (e) { }
     }
@@ -1022,6 +1124,7 @@
         `;
 
         if (itemSelecionado) {
+            carregarDropsDoItem(itemSelecionado);
             let dropsHtml = "";
             if (itemSelecionado.dropadoPor && itemSelecionado.dropadoPor.length > 0) {
                 dropsHtml = itemSelecionado.dropadoPor.map(d => `
@@ -1036,7 +1139,7 @@
             } else {
                 dropsHtml = `
                     <div style="padding: 20px; text-align: center; color: #64748b; font-size: 11px;">
-                        Nenhum Pokémon cadastrado como drop para este item no momento.
+                        Carregando ou nenhum Pokémon cadastrado como drop para este item.
                     </div>
                 `;
             }
@@ -1049,7 +1152,7 @@
                     </button>
                     
                     <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(241,198,68,0.08); border: 1px solid rgba(241,198,68,0.3); border-radius: 10px;">
-                        <img src="${escapeHtml(itemSelecionado.icone)}" style="width: 36px; height: 36px; object-fit: contain;" onerror="this.src='/assets/topmenu/inventory.png'">
+                        <img src="${escapeHtml(itemSelecionado.icone)}" style="width: 36px; height: 36px; object-fit: contain; border-radius: 4px;" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png';">
                         <div style="flex: 1; min-width: 0;">
                             <strong style="color: #fff; font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(itemSelecionado.nome)}</strong>
                             <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
@@ -1113,7 +1216,7 @@
                     ${itensFiltrados.length > 0 ? itensFiltrados.map((item, idx) => `
                         <div class="item-row-card" data-idx="${idx}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
                             <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                                <img src="${escapeHtml(item.icone)}" style="width: 24px; height: 24px; object-fit: contain;" onerror="this.src='/assets/topmenu/inventory.png'">
+                                <img src="${escapeHtml(item.icone)}" style="width: 24px; height: 24px; object-fit: contain; border-radius: 3px;" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png';">
                                 <div style="min-width: 0;">
                                     <strong style="color: #fff; font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.nome)}</strong>
                                     <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
