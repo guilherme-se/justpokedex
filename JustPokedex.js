@@ -31,6 +31,7 @@
     };
 
     const SHINY_COUNTER_KEY = "justpokedex-shiny-counter";
+    const SHINY_SOUND_ENABLED_KEY = "justpokedex-shiny-sound-enabled";
     let contadorShinies = 0;
     let shinyDetectadoNoMapa = false;
     let tempoUltimoShiny = 0;
@@ -40,6 +41,7 @@
 
     let shinyDetectorEnabled = true;
     let dailyGiftEnabled = true;
+    let shinySoundEnabled = true;
 
     try {
         const salvoCount = localStorage.getItem(SHINY_COUNTER_KEY);
@@ -53,6 +55,10 @@
         const dailySalvo = localStorage.getItem("justpokedex-daily-enabled");
         if (dailySalvo !== null) {
             dailyGiftEnabled = dailySalvo === "true";
+        }
+        const soundSalvo = localStorage.getItem(SHINY_SOUND_ENABLED_KEY);
+        if (soundSalvo !== null) {
+            shinySoundEnabled = soundSalvo === "true";
         }
     } catch (e) { }
 
@@ -119,6 +125,9 @@
     const SHINY_SOUND_URL = "https://www.myinstants.com/media/sounds/legends-arceus-shiny-noise.mp3";
 
     function tocarSomShiny(forcar = false) {
+        if (!shinySoundEnabled && !forcar) {
+            return;
+        }
         const agora = Date.now();
         // Cooldown de 15 segundos para evitar que o áudio toque em loop contínuo a cada pacote de mapa do WebSocket
         if (!forcar && (agora - tempoUltimoSomShiny < 15000)) {
@@ -134,6 +143,17 @@
                 console.warn("[JustPokédex] Não foi possível tocar o áudio de Shiny:", e);
             });
         } catch (e) { }
+    }
+
+    function toggleSomShiny() {
+        shinySoundEnabled = !shinySoundEnabled;
+        try {
+            localStorage.setItem(SHINY_SOUND_ENABLED_KEY, String(shinySoundEnabled));
+        } catch (e) { }
+        if (shinySoundEnabled) {
+            tocarSomShiny(true);
+        }
+        atualizarBannerDetectorShiny();
     }
 
     function dispensarAlertaShiny() {
@@ -5983,6 +6003,10 @@
 
         const countBadge = contadorShinies > 0 ? `<span style="background: rgba(255,193,7,0.2); border: 1px solid rgba(255,193,7,0.4); color: #ffd54f; font-size: 8.5px; font-weight: bold; padding: 0 4px; border-radius: 3px;" title="Total de Shinies detectados">${contadorShinies}</span>` : "";
 
+        const soundIcon = shinySoundEnabled ? "🔊" : "🔇";
+        const soundTitle = shinySoundEnabled ? "Som do Shiny: ATIVADO (Clique para mutar/desativar)" : "Som do Shiny: MUTADO (Clique para ativar)";
+        const soundOpacity = shinySoundEnabled ? "1" : "0.45";
+
         if (shinyDetectadoNoMapa) {
             banner.style.background = "linear-gradient(135deg, rgba(255,87,34,0.35) 0%, rgba(244,67,54,0.25) 100%)";
             banner.style.boxShadow = "inset 0 0 8px rgba(255,87,34,0.4)";
@@ -5994,7 +6018,7 @@
                     <strong style="color: #ffe0b2; font-size: 9.5px; white-space: nowrap;">SHINY!</strong>
                 </div>
                 <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
-                    <button id="btn-tocar-som-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none;" title="Tocar som do Shiny (Legends Arceus)">🔊</button>
+                    <button id="btn-tocar-som-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; opacity: ${soundOpacity};" title="${soundTitle}">${soundIcon}</button>
                     <button id="btn-limpar-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; flex-shrink: 0;">OK</button>
                 </div>
             `;
@@ -6003,7 +6027,7 @@
             if (btnSom) {
                 btnSom.onclick = (e) => {
                     e.stopPropagation();
-                    tocarSomShiny(true);
+                    toggleSomShiny();
                 };
             }
 
@@ -6022,7 +6046,7 @@
             banner.style.boxShadow = "none";
             banner.style.cursor = "default";
             banner.onclick = null;
-            banner.title = "O detector de Shiny está monitorando os dados do mapa via WebSocket. Clique no som (🔊) para testar ou no reset (🔄) para zerar a contagem.";
+            banner.title = `Detector de Shiny via WebSocket. ${soundTitle}`;
             banner.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden;">
                     <span style="font-size: 11px; opacity: 0.8;">✨</span>
@@ -6030,7 +6054,7 @@
                     ${countBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
-                    <button id="btn-testar-som-shiny" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Testar som do Shiny (Legends Arceus)">🔊</button>
+                    <button id="btn-testar-som-shiny" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2; opacity: ${soundOpacity};" title="${soundTitle}">${soundIcon}</button>
                     ${contadorShinies > 0 ? `<button id="btn-reset-shiny-counter" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Zerar contador">🔄</button>` : ""}
                     <span style="color: #818cf8; font-size: 8.5px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px;">Ativo</span>
                 </div>
@@ -6040,7 +6064,7 @@
             if (btnTestar) {
                 btnTestar.onclick = (e) => {
                     e.stopPropagation();
-                    tocarSomShiny(true);
+                    toggleSomShiny();
                 };
             }
 
