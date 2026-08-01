@@ -5,11 +5,116 @@
 // @description  Lê os dados dos Pokémon e estima seus IVs individuais
 // @match        https://poke.idleworld.online/*
 // @grant        none
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 (function () {
     "use strict";
+
+    // -------------------------------------------------------------------------
+    // RASTREAMENTO GLOBAL DE WEBSOCKET & AUTENTICAÇÃO API DAS LOJAS / DEPOT
+    // -------------------------------------------------------------------------
+    const NativeWebSocket = window.WebSocket;
+    let gameSocket = null;
+    let latestInventory = null;
+    let latestPokemon = null;
+    let latestMarketData = null;
+    let latestMyListingsData = null;
+    let latestHistoryData = null;
+    const gameEventWaiters = new Map();
+
+    function handleGameSocketMessage(event) {
+        let message;
+        try {
+            message = typeof event.data === "string" ? JSON.parse(event.data) : null;
+        } catch (e) {
+            return;
+        }
+        if (!message) return;
+
+        if (message.type === "inventory") latestInventory = message.items || [];
+        if (message.type === "pokes") latestPokemon = message.list || [];
+        if (message.type === "market" || message.type === "market-list" || message.type === "mkt" || message.listings || message.mine) {
+            if (message.listings) latestMarketData = message.listings;
+            if (message.mine) latestMyListingsData = message.mine;
+            if (message.history) latestHistoryData = message.history;
+        }
+        if (message.mine) latestMyListingsData = message.mine;
+        if (message.history) latestHistoryData = message.history;
+
+        const waiters = gameEventWaiters.get(message.type);
+        if (waiters) {
+            gameEventWaiters.delete(message.type);
+            waiters.forEach(resolve => resolve(message));
+        }
+    }
+
+    function TrackedWebSocket(url, protocols) {
+        const socket = protocols === undefined
+            ? new NativeWebSocket(url)
+            : new NativeWebSocket(url, protocols);
+        if (String(url).startsWith("ws:") || String(url).startsWith("wss:") || String(url).includes("token=") || String(url).includes("ws")) {
+            gameSocket = socket;
+            socket.addEventListener("message", handleGameSocketMessage);
+            socket.addEventListener("close", () => {
+                if (gameSocket === socket) gameSocket = null;
+            });
+        }
+        return socket;
+    }
+    if (NativeWebSocket) {
+        TrackedWebSocket.prototype = NativeWebSocket.prototype;
+        Object.setPrototypeOf(TrackedWebSocket, NativeWebSocket);
+        window.WebSocket = TrackedWebSocket;
+    }
+
+    function getGameTokens() {
+        try {
+            return JSON.parse(sessionStorage.getItem("pokeweb:tokens") || "null");
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function refreshGameAccessToken() {
+        const tokens = getGameTokens();
+        if (!tokens?.refreshToken) return null;
+        try {
+            const response = await fetch("/api/auth/refresh", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ refreshToken: tokens.refreshToken })
+            });
+            if (!response.ok) return null;
+            const refreshed = await response.json();
+            if (!refreshed?.accessToken) return null;
+            sessionStorage.setItem("pokeweb:tokens", JSON.stringify(refreshed));
+            return refreshed.accessToken;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function gameApiRequest(endpoint, options = {}) {
+        const send = accessToken => fetch(endpoint, {
+            ...options,
+            headers: {
+                ...(options.body ? { "Content-Type": "application/json" } : {}),
+                ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                ...(options.headers || {})
+            }
+        });
+
+        let response = await send(getGameTokens()?.accessToken);
+        if (response.status === 401) {
+            const refreshedToken = await refreshGameAccessToken();
+            if (refreshedToken) response = await send(refreshedToken);
+        }
+
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result?.message || result?.error || `HTTP ${response.status}`);
+        return result;
+    }
 
     const CONFIG = {
         tooltipSelector: ".inv-tip",
@@ -38,6 +143,10 @@
     let tempoUltimoIncrementoShiny = 0;
     let tempoSilenciarShiny = 0;
     let tempoUltimoPacoteShiny = 0;
+
+    // Rastreamento inteligente de Shinies no mapa (evita duplicações de notificação/contador)
+    const shiniesVistosNoMapa = new Map(); // mobKey => { firstSeen, lastSeen, speciesId, slot }
+    const shiniesProcessadosEDerrotados = new Set(); // mobKey
 
     let shinyDetectorEnabled = true;
     let dailyGiftEnabled = true;
@@ -101,10 +210,10 @@
         }
     }
 
-    function incrementarContadorShiny() {
+    function incrementarContadorShiny(forcar = false) {
         const agora = Date.now();
-        // Debounce de 15 segundos para evitar contar pacotes repetidos do mesmo Shiny
-        if (agora - tempoUltimoIncrementoShiny > 15000) {
+        // Incrementa quando for uma nova detecção única de Shiny no mapa
+        if (forcar || (agora - tempoUltimoIncrementoShiny > 1000)) {
             contadorShinies++;
             tempoUltimoIncrementoShiny = agora;
             try {
@@ -118,6 +227,8 @@
 
     function zerarContadorShiny() {
         contadorShinies = 0;
+        shiniesVistosNoMapa.clear();
+        shiniesProcessadosEDerrotados.clear();
         try {
             localStorage.setItem(SHINY_COUNTER_KEY, "0");
         } catch (e) { }
@@ -132,8 +243,8 @@
             return;
         }
         const agora = Date.now();
-        // Cooldown de 15 segundos para evitar que o áudio toque em loop contínuo a cada pacote de mapa do WebSocket
-        if (!forcar && (agora - tempoUltimoSomShiny < 15000)) {
+        // Cooldown de 3 segundos para evitar sobreposição de áudios repetidos
+        if (!forcar && (agora - tempoUltimoSomShiny < 3000)) {
             return;
         }
         tempoUltimoSomShiny = agora;
@@ -161,7 +272,6 @@
 
     function dispensarAlertaShiny() {
         shinyDetectadoNoMapa = false;
-        // Silencia alertas do WebSocket por até 60s enquanto o mesmo Shiny estiver no mapa
         tempoSilenciarShiny = Date.now() + 60000;
         if (typeof atualizarBannerDetectorShiny === "function") {
             atualizarBannerDetectorShiny();
@@ -169,13 +279,11 @@
     }
 
     (function monitorarInatividadeShiny() {
-        // Se passarem 4s sem nenhum pacote de Shiny no mapa, o Shiny foi derrotado ou sumiu.
-        // Reseta o silenciamento para que o PRÓXIMO Shiny dispare o alerta imediatamente!
         setInterval(() => {
             const agora = Date.now();
             if (tempoUltimoPacoteShiny > 0 && (agora - tempoUltimoPacoteShiny > 4000)) {
                 tempoSilenciarShiny = 0;
-                if (shinyDetectadoNoMapa && (agora - tempoUltimoShiny > 8000)) {
+                if (shiniesVistosNoMapa.size === 0 && shinyDetectadoNoMapa && (agora - tempoUltimoShiny > 6000)) {
                     shinyDetectadoNoMapa = false;
                     if (typeof atualizarBannerDetectorShiny === "function") {
                         atualizarBannerDetectorShiny();
@@ -185,48 +293,348 @@
         }, 2000);
     })();
 
-    (function interceptarWebSocketShiny() {
-        const OriginalWebSocket = window.WebSocket;
-        if (!OriginalWebSocket) return;
+    // Diagnóstico e estatísticas da conexão WebSocket
+    const wsStats = {
+        intercepted: false,
+        socketCount: 0,
+        receivedMessagesCount: 0,
+        catchResultCount: 0,
+        fieldCount: 0,
+        analyzerCount: 0,
+        lastError: null,
+        lastMessageTime: null,
+        lastCatchResultTime: null
+    };
 
-        function ProxyWebSocket(...args) {
-            const ws = new OriginalWebSocket(...args);
+    // Interceptador Centralizado de WebSocket e Barramento de Eventos Internos
+    function processarEMitirMensagemWS(data) {
+        if (!data) return;
 
-            ws.addEventListener("message", (evento) => {
-                try {
-                    if (typeof evento.data === "string") {
-                        if (evento.data.includes('"shiny":true') || evento.data.includes('"shiny": true')) {
-                            const agora = Date.now();
-                            tempoUltimoPacoteShiny = agora;
+        wsStats.lastMessageTime = Date.now();
+        wsStats.receivedMessagesCount++;
 
-                            // Se o usuário dispensou o alerta deste Shiny, não reabre o alerta enquanto o mesmo Pokémon estiver no mapa
-                            if (agora < tempoSilenciarShiny) {
-                                return;
-                            }
+        function emitir(parsed) {
+            if (!parsed) return;
 
-                            shinyDetectadoNoMapa = true;
-                            tempoUltimoShiny = agora;
-                            incrementarContadorShiny();
-                            tocarSomShiny();
-                            if (typeof atualizarBannerDetectorShiny === "function") {
-                                atualizarBannerDetectorShiny();
-                            }
-                        }
-                    }
-                } catch (e) { }
-            });
+            // 1. Evento genérico oficial da extensão
+            try {
+                window.dispatchEvent(
+                    new CustomEvent("justpokedex-ws-message", {
+                        detail: parsed
+                    })
+                );
+            } catch (e) { }
 
-            return ws;
+            // 2. Evento legado para retrocompatibilidade
+            try {
+                window.dispatchEvent(
+                    new CustomEvent("pokemon-extension-ws-message", {
+                        detail: parsed
+                    })
+                );
+            } catch (e) { }
+
+            // 3. Processamento direto seguro no analisador de captura
+            try {
+                if (typeof processarMensagemCatchAnalyzer === "function") {
+                    processarMensagemCatchAnalyzer(parsed);
+                }
+            } catch (e) {
+                wsStats.lastError = e ? String(e.message || e) : "Erro ao processar mensagem";
+            }
+
+            // 4. Cache e resolvedores para requisições de Lojas/Depot (Funcionalidades 3 e 4)
+            try {
+                if (parsed.type === "inventory") latestInventory = parsed.items || [];
+                if (parsed.type === "pokes") latestPokemon = parsed.list || [];
+                if (typeof gameEventWaiters !== "undefined" && gameEventWaiters.has(parsed.type)) {
+                    const waiters = gameEventWaiters.get(parsed.type);
+                    gameEventWaiters.delete(parsed.type);
+                    waiters.forEach(resolve => resolve(parsed));
+                }
+            } catch (e) { }
         }
 
-        ProxyWebSocket.prototype = OriginalWebSocket.prototype;
-        ProxyWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
-        ProxyWebSocket.OPEN = OriginalWebSocket.OPEN;
-        ProxyWebSocket.CLOSING = OriginalWebSocket.CLOSING;
-        ProxyWebSocket.CLOSED = OriginalWebSocket.CLOSED;
+        if (typeof data === "string") {
+            try {
+                const parsed = JSON.parse(data);
+                emitir(parsed);
+            } catch (e) {
+                // Extrai objetos JSON embutidos caso venha envelopado ou concatenado
+                try {
+                    const matches = data.match(/\{.*?\}/g);
+                    if (matches) {
+                        matches.forEach(str => {
+                            try {
+                                const p = JSON.parse(str);
+                                emitir(p);
+                            } catch (err) { }
+                        });
+                    }
+                } catch (e2) { }
+            }
+        } else if (data instanceof ArrayBuffer || (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(data))) {
+            try {
+                const decoder = new TextDecoder("utf-8");
+                const buffer = data.buffer ? data.buffer : data;
+                const str = decoder.decode(buffer);
+                const parsed = JSON.parse(str);
+                emitir(parsed);
+            } catch (e) { }
+        } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+            try {
+                const reader = new FileReader();
+                reader.onload = function () {
+                    try {
+                        const str = reader.result;
+                        const parsed = JSON.parse(str);
+                        emitir(parsed);
+                    } catch (e) { }
+                };
+                reader.readAsText(data);
+            } catch (e) { }
+        } else if (typeof data === "object") {
+            emitir(data);
+        }
+    }
 
-        window.WebSocket = ProxyWebSocket;
+    (function interceptarWebSocketCentral() {
+        const eventosProcessados = new WeakSet();
+
+        function processarSeguro(data, evento) {
+            if (evento && evento.target && evento.target.readyState === WebSocket.OPEN) {
+                gameSocket = evento.target;
+            }
+            if (evento && typeof evento === "object") {
+                if (eventosProcessados.has(evento)) return;
+                eventosProcessados.add(evento);
+            }
+            try {
+                processarEMitirMensagemWS(data);
+            } catch (e) { }
+        }
+
+        const listenerMap = new WeakMap();
+
+        // 1. Hook em addEventListener / removeEventListener do WebSocket.prototype
+        try {
+            const origAddEventListener = WebSocket.prototype.addEventListener;
+            const origRemoveEventListener = WebSocket.prototype.removeEventListener;
+
+            if (origAddEventListener && !origAddEventListener.__justPokedexPatched) {
+                WebSocket.prototype.addEventListener = function (type, listener, options) {
+                    if (type === "message" && typeof listener === "function") {
+                        let wrapped = listenerMap.get(listener);
+                        if (!wrapped) {
+                            wrapped = function (event) {
+                                processarSeguro(event ? event.data : null, event);
+                                return listener.apply(this, arguments);
+                            };
+                            listenerMap.set(listener, wrapped);
+                        }
+                        return origAddEventListener.call(this, type, wrapped, options);
+                    }
+                    return origAddEventListener.apply(this, arguments);
+                };
+                WebSocket.prototype.addEventListener.__justPokedexPatched = true;
+            }
+
+            if (origRemoveEventListener && !origRemoveEventListener.__justPokedexPatched) {
+                WebSocket.prototype.removeEventListener = function (type, listener, options) {
+                    if (type === "message" && typeof listener === "function") {
+                        const wrapped = listenerMap.get(listener);
+                        if (wrapped) {
+                            return origRemoveEventListener.call(this, type, wrapped, options);
+                        }
+                    }
+                    return origRemoveEventListener.apply(this, arguments);
+                };
+                WebSocket.prototype.removeEventListener.__justPokedexPatched = true;
+            }
+        } catch (e) { }
+
+        // 2. Hook no setter de onmessage do WebSocket.prototype
+        try {
+            const desc = Object.getOwnPropertyDescriptor(WebSocket.prototype, "onmessage");
+            if (desc && desc.set && !desc.set.__justPokedexPatched) {
+                const origSet = desc.set;
+                const origGet = desc.get;
+                Object.defineProperty(WebSocket.prototype, "onmessage", {
+                    set(fn) {
+                        if (typeof fn === "function") {
+                            const wrapped = function (event) {
+                                processarSeguro(event ? event.data : null, event);
+                                return fn.apply(this, arguments);
+                            };
+                            wrapped.__justPokedexPatched = true;
+                            return origSet.call(this, wrapped);
+                        }
+                        return origSet.call(this, fn);
+                    },
+                    get() {
+                        return origGet ? origGet.call(this) : null;
+                    },
+                    configurable: true,
+                    enumerable: true
+                });
+            }
+        } catch (e) { }
+
+        // 3. Constructor Proxy
+        const OriginalWebSocket = window.WebSocket;
+        if (OriginalWebSocket && !OriginalWebSocket.__isJustPokedexIntercepted) {
+            function ProxyWebSocket(...args) {
+                wsStats.socketCount++;
+                wsStats.intercepted = true;
+                const ws = new OriginalWebSocket(...args);
+
+                ws.addEventListener("message", (evento) => {
+                    processarSeguro(evento ? evento.data : null, evento);
+                });
+
+                return ws;
+            }
+
+            ProxyWebSocket.prototype = OriginalWebSocket.prototype;
+            ProxyWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+            ProxyWebSocket.OPEN = OriginalWebSocket.OPEN;
+            ProxyWebSocket.CLOSING = OriginalWebSocket.CLOSING;
+            ProxyWebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            ProxyWebSocket.__isJustPokedexIntercepted = true;
+
+            window.WebSocket = ProxyWebSocket;
+            wsStats.intercepted = true;
+        }
     })();
+
+    function extrairMobsDoPacote(obj, depth = 0, lista = []) {
+        if (!obj || typeof obj !== "object" || depth > 5) return lista;
+
+        if (obj.shiny !== undefined || obj.isShiny !== undefined || (obj.row !== undefined && obj.col !== undefined && obj.hp !== undefined)) {
+            lista.push(obj);
+        }
+
+        if (Array.isArray(obj)) {
+            obj.forEach(item => extrairMobsDoPacote(item, depth + 1, lista));
+        } else {
+            if (Array.isArray(obj.mobs)) {
+                obj.mobs.forEach(item => extrairMobsDoPacote(item, depth + 1, lista));
+            }
+            for (const k in obj) {
+                if (k === "mobs") continue;
+                const val = obj[k];
+                if (val && typeof val === "object" && depth < 3) {
+                    if (!Array.isArray(val) || k === "entities" || k === "monsters" || k === "pokemons") {
+                        extrairMobsDoPacote(val, depth + 1, lista);
+                    }
+                }
+            }
+        }
+        return lista;
+    }
+
+    function analisarShiniesNoPacote(parsed) {
+        if (!parsed || typeof parsed !== "object") return;
+
+        const agora = Date.now();
+        const mobs = extrairMobsDoPacote(parsed);
+
+        const shiniesVivosPacote = [];
+        const shiniesMortosPacote = [];
+
+        for (const mob of mobs) {
+            const isShiny = mob.shiny === true || mob.isShiny === true || mob.shiny_state === true;
+            if (!isShiny) continue;
+
+            const isDead = Boolean(mob.dead || mob.isDead || mob.killed);
+            const isRespawning = Boolean(mob.respawning || mob.isRespawning);
+            const hpZero = mob.hp !== undefined && mob.hp !== null && Number(mob.hp) === 0;
+
+            const mobKey = (mob.id !== undefined && mob.id !== null)
+                ? `id_${mob.id}`
+                : (mob.slot !== undefined && mob.slot !== null)
+                    ? `slot_${mob.slot}_sp_${mob.speciesId || mob.species || 'x'}`
+                    : `pos_${mob.row}_${mob.col}_sp_${mob.speciesId || mob.species || 'x'}`;
+
+            if (isDead || isRespawning || hpZero) {
+                shiniesMortosPacote.push(mobKey);
+            } else {
+                shiniesVivosPacote.push({ mobKey, mob });
+            }
+        }
+
+        for (const deadKey of shiniesMortosPacote) {
+            shiniesVistosNoMapa.delete(deadKey);
+            shiniesProcessadosEDerrotados.add(deadKey);
+        }
+
+        let novosShiniesDetectados = 0;
+
+        for (const { mobKey, mob } of shiniesVivosPacote) {
+            tempoUltimoPacoteShiny = agora;
+
+            if (shiniesVistosNoMapa.has(mobKey)) {
+                const info = shiniesVistosNoMapa.get(mobKey);
+                info.lastSeen = agora;
+            } else {
+                if (!shiniesProcessadosEDerrotados.has(mobKey)) {
+                    shiniesVistosNoMapa.set(mobKey, {
+                        firstSeen: agora,
+                        lastSeen: agora,
+                        speciesId: mob.speciesId || mob.species,
+                        slot: mob.slot
+                    });
+                    novosShiniesDetectados++;
+                }
+            }
+        }
+
+        if (novosShiniesDetectados > 0) {
+            shinyDetectadoNoMapa = true;
+            tempoUltimoShiny = agora;
+            for (let i = 0; i < novosShiniesDetectados; i++) {
+                incrementarContadorShiny(true);
+            }
+            tocarSomShiny(true);
+            if (typeof atualizarBannerDetectorShiny === "function") {
+                atualizarBannerDetectorShiny();
+            }
+        } else if (shiniesVivosPacote.length > 0) {
+            shinyDetectadoNoMapa = true;
+            tempoUltimoShiny = agora;
+            if (typeof atualizarBannerDetectorShiny === "function") {
+                atualizarBannerDetectorShiny();
+            }
+        }
+
+        for (const [key, info] of shiniesVistosNoMapa.entries()) {
+            if (agora - info.lastSeen > 8000) {
+                shiniesVistosNoMapa.delete(key);
+            }
+        }
+
+        if (shiniesProcessadosEDerrotados.size > 100) {
+            shiniesProcessadosEDerrotados.clear();
+        }
+
+        if (shiniesVistosNoMapa.size === 0 && (agora - tempoUltimoPacoteShiny > 4000)) {
+            if (shinyDetectadoNoMapa && (agora - tempoUltimoShiny > 4000)) {
+                shinyDetectadoNoMapa = false;
+                if (typeof atualizarBannerDetectorShiny === "function") {
+                    atualizarBannerDetectorShiny();
+                }
+            }
+        }
+    }
+
+    // Escutador interno para detector de shiny via barramento WS
+    window.addEventListener("justpokedex-ws-message", (evento) => {
+        try {
+            const parsed = evento.detail;
+            if (!parsed) return;
+            analisarShiniesNoPacote(parsed);
+        } catch (e) { }
+    });
 
     const NOMES_STATS = {
         hp: "HP",
@@ -600,14 +1008,21 @@
 
     function alternarPainelMoves() {
         const movesPanel = document.getElementById("moves-panel");
-        const btn = document.querySelector('[data-tab="moves"]');
+        const btnMovesHeader = document.getElementById("toggle-moves");
+        const btnTab = document.querySelector('[data-tab="moves"]');
         if (!movesPanel) return;
 
         mostrarAbaMoves = !mostrarAbaMoves;
         movesPanel.style.display = mostrarAbaMoves ? "flex" : "none";
 
-        if (btn) {
-            btn.classList.toggle("active", mostrarAbaMoves);
+        if (btnMovesHeader) {
+            btnMovesHeader.style.opacity = mostrarAbaMoves ? "1" : "1";
+            btnMovesHeader.style.background = mostrarAbaMoves ? "rgba(255,255,255,0.2)" : "";
+            btnMovesHeader.style.border = mostrarAbaMoves ? "1px solid rgba(255,255,255,0.4)" : "";
+        }
+
+        if (btnTab) {
+            btnTab.classList.toggle("active", mostrarAbaMoves);
         }
 
         if (mostrarAbaMoves) {
@@ -773,150 +1188,17 @@
     let categoriaItemSelecionada = "TODAS";
     let itemSelecionado = null;
     let filtroBuscaItem = "";
-    let listaItensGlobal = [
-        {
-            nome: "Air Tank",
-            categoria: "LOOT",
-            preco: "$ 1.000",
-            icone: "https://pokexguides.com/images/items/drops/Air Tank.png",
-            dropadoPor: [
-                { pokemon: "Golduck", quantidade: "x1", chance: "0.90%" },
-                { pokemon: "Gyarados", quantidade: "x1", chance: "0.65%" },
-                { pokemon: "Seadra", quantidade: "x1", chance: "0.50%" },
-                { pokemon: "Seaking", quantidade: "x1", chance: "0.50%" },
-                { pokemon: "Tentacruel", quantidade: "x1", chance: "0.50%" }
-            ]
-        },
-        {
-            nome: "Ancient Stone",
-            categoria: "PEDRA",
-            preco: "$ 50.000",
-            icone: "https://pokexguides.com/images/items/drops/Ancient Stone.png",
-            dropadoPor: [
-                { pokemon: "Aerodactyl", quantidade: "x1", chance: "0.10%" },
-                { pokemon: "Kabutops", quantidade: "x1", chance: "0.15%" },
-                { pokemon: "Omastar", quantidade: "x1", chance: "0.15%" }
-            ]
-        },
-        {
-            nome: "Armadillo Claw",
-            categoria: "LOOT",
-            preco: "$ 147",
-            icone: "https://pokexguides.com/images/items/drops/Armadillo Claw.png",
-            dropadoPor: [
-                { pokemon: "Sandslash", quantidade: "x1", chance: "1.20%" },
-                { pokemon: "Sandshrew", quantidade: "x1", chance: "0.80%" }
-            ]
-        },
-        {
-            nome: "Bag of Pollen",
-            categoria: "LOOT",
-            preco: "$ 40",
-            icone: "https://pokexguides.com/images/items/drops/Bag of Pollen.png",
-            dropadoPor: [
-                { pokemon: "Butterfree", quantidade: "x1", chance: "2.00%" },
-                { pokemon: "Vileplume", quantidade: "x1", chance: "1.50%" },
-                { pokemon: "Beedrill", quantidade: "x1", chance: "1.80%" }
-            ]
-        },
-        {
-            nome: "Band Aid",
-            categoria: "LOOT",
-            preco: "$ 1",
-            icone: "https://pokexguides.com/images/items/drops/Band Aid.png",
-            dropadoPor: [
-                { pokemon: "Chansey", quantidade: "x1", chance: "2.50%" },
-                { pokemon: "Blissey", quantidade: "x1", chance: "2.00%" }
-            ]
-        },
-        {
-            nome: "Bat Wing",
-            categoria: "LOOT",
-            preco: "$ 15",
-            icone: "https://pokexguides.com/images/items/drops/Bat Wing.png",
-            dropadoPor: [
-                { pokemon: "Zubat", quantidade: "x1", chance: "3.00%" },
-                { pokemon: "Golbat", quantidade: "x1", chance: "2.50%" },
-                { pokemon: "Crobat", quantidade: "x1", chance: "2.00%" }
-            ]
-        },
-        {
-            nome: "Fire Stone",
-            categoria: "PEDRA",
-            preco: "$ 10.000",
-            icone: "https://pokexguides.com/images/items/drops/Fire Stone.png",
-            dropadoPor: [
-                { pokemon: "Charizard", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Magmar", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Arcanine", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Ninetales", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Flareon", quantidade: "x1", chance: "0.30%" }
-            ]
-        },
-        {
-            nome: "Water Stone",
-            categoria: "PEDRA",
-            preco: "$ 10.000",
-            icone: "https://pokexguides.com/images/items/drops/Water Stone.png",
-            dropadoPor: [
-                { pokemon: "Blastoise", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Poliwrath", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Vaporeon", quantidade: "x1", chance: "0.30%" },
-                { pokemon: "Starmie", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Cloyster", quantidade: "x1", chance: "0.25%" }
-            ]
-        },
-        {
-            nome: "Leaf Stone",
-            categoria: "PEDRA",
-            preco: "$ 10.000",
-            icone: "https://pokexguides.com/images/items/drops/Leaf Stone.png",
-            dropadoPor: [
-                { pokemon: "Venusaur", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Exeggutor", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Victreebel", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Vileplume", quantidade: "x1", chance: "0.25%" }
-            ]
-        },
-        {
-            nome: "Thunder Stone",
-            categoria: "PEDRA",
-            preco: "$ 10.000",
-            icone: "https://pokexguides.com/images/items/drops/Thunder Stone.png",
-            dropadoPor: [
-                { pokemon: "Raichu", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Electabuzz", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Jolteon", quantidade: "x1", chance: "0.30%" },
-                { pokemon: "Magneton", quantidade: "x1", chance: "0.25%" }
-            ]
-        },
-        {
-            nome: "Venom Stone",
-            categoria: "PEDRA",
-            preco: "$ 10.000",
-            icone: "https://pokexguides.com/images/items/drops/Venom Stone.png",
-            dropadoPor: [
-                { pokemon: "Gengar", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Arbok", quantidade: "x1", chance: "0.30%" },
-                { pokemon: "Weezing", quantidade: "x1", chance: "0.25%" },
-                { pokemon: "Nidoking", quantidade: "x1", chance: "0.20%" },
-                { pokemon: "Nidoqueen", quantidade: "x1", chance: "0.20%" }
-            ]
-        },
-        {
-            nome: "Shiny Card",
-            categoria: "SHINY CARD",
-            preco: "$ 100.000",
-            icone: "https://pokexguides.com/images/items/drops/Shiny Card.png",
-            dropadoPor: [
-                { pokemon: "Shiny Charizard", quantidade: "x1", chance: "1.00%" },
-                { pokemon: "Shiny Blastoise", quantidade: "x1", chance: "1.00%" },
-                { pokemon: "Shiny Venusaur", quantidade: "x1", chance: "1.00%" },
-                { pokemon: "Shiny Dragonite", quantidade: "x1", chance: "0.80%" },
-                { pokemon: "Shiny Gengar", quantidade: "x1", chance: "0.90%" }
-            ]
+    let listaItensGlobal = [];
+
+    try {
+        const cacheItensSalvo = localStorage.getItem("justpokedex-items-cache-v4");
+        if (cacheItensSalvo) {
+            const parsed = JSON.parse(cacheItensSalvo);
+            if (Array.isArray(parsed)) {
+                listaItensGlobal = parsed;
+            }
         }
-    ];
+    } catch (e) { }
 
     function alternarPainelItens() {
         const itemsPanel = document.getElementById("items-panel");
@@ -1150,8 +1432,8 @@
                 const catUpper = (item.categoria || "").toUpperCase();
                 const rawCatUpper = (item.rawCategory || "").toUpperCase();
                 const bateCat = categoriaItemSelecionada === "TODAS" ||
-                                catUpper.includes(categoriaItemSelecionada) ||
-                                rawCatUpper.includes(categoriaItemSelecionada);
+                    catUpper.includes(categoriaItemSelecionada) ||
+                    rawCatUpper.includes(categoriaItemSelecionada);
                 return bateNome && bateCat;
             });
 
@@ -1558,7 +1840,9 @@
 
             if (
                 estado.abaAtual === "leitor" ||
-                estado.abaAtual === "analise"
+                estado.abaAtual === "analise" ||
+                estado.abaAtual === "comparacao" ||
+                estado.abaAtual === "captura"
             ) {
                 abaAtual = estado.abaAtual;
             }
@@ -1909,6 +2193,15 @@
 
                 <div class="header-actions">
                     <button
+                        id="toggle-moves"
+                        type="button"
+                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
+                        title="Poképedia — Moves & Golpes (👊)"
+                    >
+                        👊
+                    </button>
+
+                    <button
                         id="toggle-items"
                         type="button"
                         style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
@@ -2022,11 +2315,11 @@
 
                     <button
                         class="tab-button"
-                        data-tab="moves"
+                        data-tab="captura"
                         type="button"
                     >
-                        <span class="tab-icon">⚔</span>
-                        Moves
+                        <span class="tab-icon">🎯</span>
+                        Análise de Captura
                     </button>
                 </div>
 
@@ -2089,6 +2382,15 @@
                     </div>
                 </div>
 
+                <div
+                    id="tab-captura"
+                    class="tab-content"
+                >
+                    <div id="catch-analyzer-content">
+                        <!-- Conteúdo da análise de captura será renderizado dinamicamente -->
+                    </div>
+                </div>
+
 
 
                 <div class="footer">
@@ -2139,6 +2441,13 @@
                 const btnMoves = document.querySelector('[data-tab="moves"]');
                 if (btnMoves) btnMoves.classList.remove("active");
 
+                const btnMovesHeader = document.getElementById("toggle-moves");
+                if (btnMovesHeader) {
+                    btnMovesHeader.style.opacity = "1";
+                    btnMovesHeader.style.background = "";
+                    btnMovesHeader.style.border = "";
+                }
+
                 const itemsPanelEl = document.getElementById("items-panel");
                 if (itemsPanelEl) itemsPanelEl.style.display = "none";
                 mostrarAbaItens = false;
@@ -2149,6 +2458,14 @@
                     btnItems.style.border = "";
                 }
             });
+
+        const btnMoves = document.getElementById("toggle-moves");
+        if (btnMoves) {
+            btnMoves.addEventListener("click", evento => {
+                evento.stopPropagation();
+                alternarPainelMoves();
+            });
+        }
 
         const btnItems = document.getElementById("toggle-items");
         if (btnItems) {
@@ -2355,7 +2672,8 @@
         if (
             nome !== "leitor" &&
             nome !== "analise" &&
-            nome !== "comparacao"
+            nome !== "comparacao" &&
+            nome !== "captura"
         ) {
             return;
         }
@@ -2393,6 +2711,12 @@
 
         if (nome === "comparacao") {
             atualizarPainelComparacao();
+        }
+
+        if (nome === "captura") {
+            if (typeof renderizarAbaCaptura === "function") {
+                renderizarAbaCaptura();
+            }
         }
     }
 
@@ -4282,6 +4606,7 @@
             #${CONFIG.panelId}.minimized #panel-body,
             #${CONFIG.panelId}.minimized .led-area,
             #${CONFIG.panelId}.minimized .top-banners-grid,
+            #${CONFIG.panelId}.minimized #toggle-moves,
             #${CONFIG.panelId}.minimized #toggle-items,
             #${CONFIG.panelId}.minimized #toggle-shiny,
             #${CONFIG.panelId}.minimized #toggle-daily {
@@ -6223,15 +6548,322 @@
                 }
             }
 
-            @keyframes float {
-                0%,
-                100% {
-                    transform: translateY(0);
-                }
+            /* ========================================================================= */
+            /* ESTILOS DA ABA ANÁLISE DE CAPTURA (.catch-*)                              */
+            /* ========================================================================= */
+            #tab-captura-inner {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                padding: 10px;
+                background: #090d16;
+                color: #e2e8f0;
+                font-family: inherit;
+                box-sizing: border-box;
+            }
 
-                50% {
-                    transform: translateY(-5px);
-                }
+            .catch-controls-bar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 8px;
+                background: #111827;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px 12px;
+            }
+
+            .catch-status-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 10px;
+                font-weight: bold;
+                color: #34d399;
+                background: rgba(52, 211, 153, 0.12);
+                border: 1px solid rgba(52, 211, 153, 0.3);
+                padding: 2px 8px;
+                border-radius: 99px;
+            }
+
+            .catch-status-badge.paused {
+                color: #fbbf24;
+                background: rgba(251, 191, 36, 0.12);
+                border-color: rgba(251, 191, 36, 0.3);
+            }
+
+            .catch-btn-group {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                flex-wrap: wrap;
+            }
+
+            .catch-btn {
+                background: #1e293b;
+                color: #e2e8f0;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 4px 9px;
+                font-size: 9.5px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.15s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .catch-btn:hover {
+                background: #334155;
+                border-color: rgba(255, 255, 255, 0.25);
+                color: #fff;
+            }
+
+            .catch-btn.primary {
+                background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+                border-color: #3b82f6;
+                color: #fff;
+            }
+
+            .catch-btn.primary:hover {
+                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            }
+
+            .catch-btn.danger {
+                background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+                border-color: #ef4444;
+                color: #fff;
+            }
+
+            .catch-btn.danger:hover {
+                background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            }
+
+            .catch-cards-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+                gap: 6px;
+            }
+
+            .catch-stat-card {
+                background: linear-gradient(135deg, #131c2d 0%, #0d1422 100%);
+                border: 1px solid rgba(255, 255, 255, 0.07);
+                border-radius: 8px;
+                padding: 7px 8px;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                box-sizing: border-box;
+            }
+
+            .catch-stat-card .card-lbl {
+                font-size: 8px;
+                font-weight: bold;
+                color: #94a3b8;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+            }
+
+            .catch-stat-card .card-val {
+                font-size: 13px;
+                font-weight: bold;
+                color: #fff;
+                line-height: 1.2;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .catch-stat-card .card-sub {
+                font-size: 7.5px;
+                color: #64748b;
+            }
+
+            .catch-validation-panel {
+                background: #0f172a;
+                border: 1px solid rgba(56, 189, 248, 0.2);
+                border-radius: 8px;
+                padding: 8px 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .catch-validation-title {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 10.5px;
+                font-weight: bold;
+                color: #38bdf8;
+            }
+
+            .catch-meta-progress-box {
+                background: #111827;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px 12px;
+            }
+
+            .catch-charts-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 8px;
+            }
+
+            .catch-chart-card {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .catch-chart-header {
+                font-size: 10px;
+                font-weight: bold;
+                color: #cbd5e1;
+            }
+
+            .catch-filters-bar {
+                background: #111827;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px 10px;
+            }
+
+            .catch-input, .catch-select {
+                background: #090d16;
+                color: #e2e8f0;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 5px;
+                padding: 3px 6px;
+                font-size: 9.5px;
+                outline: none;
+                box-sizing: border-box;
+            }
+
+            .catch-input:focus, .catch-select:focus {
+                border-color: #38bdf8;
+            }
+
+            .catch-table-wrapper {
+                overflow-x: auto;
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                max-height: 300px;
+                overflow-y: auto;
+            }
+
+            .catch-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 9.5px;
+                color: #e2e8f0;
+            }
+
+            .catch-table th {
+                background: #1e293b;
+                color: #94a3b8;
+                font-weight: bold;
+                text-align: left;
+                padding: 6px 8px;
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .catch-table td {
+                padding: 5px 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            }
+
+            .catch-table-row {
+                cursor: pointer;
+                transition: background 0.12s ease;
+            }
+
+            .catch-table-row:hover {
+                background: rgba(56, 189, 248, 0.08) !important;
+            }
+
+            .catch-badge {
+                display: inline-block;
+                padding: 1px 6px;
+                border-radius: 99px;
+                font-size: 8px;
+                font-weight: bold;
+                line-height: 1.3;
+            }
+
+            .catch-badge.error { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
+            .catch-badge.warning { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+            .catch-badge.info { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+            .catch-badge.teal { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; border: 1px solid rgba(45, 212, 191, 0.3); }
+            .catch-badge.success { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+
+            .catch-modal-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.75);
+                backdrop-filter: blur(3px);
+                z-index: 10000;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                padding: 15px;
+            }
+
+            .catch-modal-content {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                width: 100%;
+                max-width: 580px;
+                max-height: 85vh;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+                overflow: hidden;
+            }
+
+            .catch-modal-header {
+                background: #1e293b;
+                padding: 10px 14px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            }
+
+            .catch-modal-header h3 {
+                margin: 0;
+                font-size: 12px;
+                color: #fff;
+            }
+
+            .catch-modal-close {
+                background: transparent;
+                border: none;
+                color: #94a3b8;
+                font-size: 18px;
+                cursor: pointer;
+                line-height: 1;
+            }
+
+            .catch-modal-close:hover {
+                color: #fff;
+            }
+
+            .catch-modal-body {
+                padding: 12px;
+                overflow-y: auto;
             }
         `;
     }
@@ -6352,13 +6984,45 @@
         let clogListObserver = null;
         let filtrandoClog = false;
 
+        const LISTA_RARIDADES = [
+            { id: "fraca", nome: "Fraca", cor: "#9e9e9e" },
+            { id: "comum", nome: "Comum", cor: "#e0e0e0" },
+            { id: "incomum", nome: "Incomum", cor: "#4caf50" },
+            { id: "rara", nome: "Rara", cor: "#2196f3" },
+            { id: "épica", nome: "Épica", cor: "#ab47bc" },
+            { id: "lendária", nome: "Lendária", cor: "#ffb300" },
+            { id: "mítica", nome: "Mítica", cor: "#f44336" },
+            { id: "anciã", nome: "Anciã", cor: "#8d6e63" },
+            { id: "divina", nome: "Divina", cor: "#00e5ff" }
+        ];
+
+        if (!window._clogRaridadesSelecionadas) {
+            window._clogRaridadesSelecionadas = new Set(LISTA_RARIDADES.map(r => r.id));
+        }
+        const raridadesSelecionadas = window._clogRaridadesSelecionadas;
+
+        function atualizarTextoBotaoRaridade() {
+            const btnText = document.getElementById("clog-rarity-btn-text");
+            if (!btnText) return;
+
+            if (raridadesSelecionadas.size === LISTA_RARIDADES.length || raridadesSelecionadas.size === 0) {
+                btnText.textContent = "Todas Raridades";
+            } else if (raridadesSelecionadas.size === 1) {
+                const idSel = Array.from(raridadesSelecionadas)[0];
+                const item = LISTA_RARIDADES.find(r => r.id === idSel);
+                btnText.textContent = item ? item.nome : "1 Raridade";
+            } else {
+                btnText.textContent = `${raridadesSelecionadas.size} Raridades`;
+            }
+        }
+
         function aplicarFiltroClog() {
             if (filtrandoClog) return;
             const clogWindow = document.querySelector(".clog-window");
             if (!clogWindow) return;
 
-            const rarityFilter = (document.getElementById("clog-filter-rarity")?.value || "").toLowerCase().trim();
             const ivFilterVal = parseInt(document.getElementById("clog-filter-iv")?.value || "0", 10);
+            const todasSelecionadas = raridadesSelecionadas.size === LISTA_RARIDADES.length || raridadesSelecionadas.size === 0;
 
             const rows = clogWindow.querySelectorAll(".clog-list .clog-row");
             if (!rows.length) return;
@@ -6369,16 +7033,23 @@
                 const fullText = (row.innerText || "").trim();
                 const metaText = metaEl ? (metaEl.innerText || "").trim() : fullText;
 
-                // Extrai raridade (primeira parte antes do ponto · ou espaço)
-                // Ex: "Comum · IV 106/192" -> parts[0] = "Comum"
                 const parts = metaText.split("·").map(s => s.trim());
-                const rarityText = parts[0] ? parts[0] : metaText.split(/\s+/)[0] || "";
+                const firstPart = (parts[0] ? parts[0] : metaText.split(/\s+/)[0] || "").toLowerCase().trim();
 
-                // Extrai o valor do IV (Ex: "IV 106/192" -> 106)
+                let rowRarity = null;
+                const foundDirect = LISTA_RARIDADES.find(r => r.id === firstPart);
+                if (foundDirect) {
+                    rowRarity = foundDirect.id;
+                } else {
+                    const textLower = fullText.toLowerCase();
+                    const foundSub = LISTA_RARIDADES.find(r => textLower.includes(r.id));
+                    if (foundSub) rowRarity = foundSub.id;
+                }
+
                 const ivMatch = metaText.match(/IV\s*(\d+)/i) || fullText.match(/IV\s*(\d+)/i);
                 const ivVal = ivMatch ? parseInt(ivMatch[1], 10) : 0;
 
-                const matchesRarity = !rarityFilter || rarityText.toLowerCase().trim() === rarityFilter;
+                const matchesRarity = todasSelecionadas || (rowRarity ? raridadesSelecionadas.has(rowRarity) : true);
                 const matchesIv = !ivFilterVal || ivVal >= ivFilterVal;
 
                 if (matchesRarity && matchesIv) {
@@ -6390,9 +7061,85 @@
             filtrandoClog = false;
         }
 
+        // Garante que o menu exista no body (evita overflow: hidden do modal)
+        function obterOuCriarMenuDropGlobal() {
+            let menuDrop = document.getElementById("clog-rarity-menu-global");
+            if (!menuDrop) {
+                menuDrop = document.createElement("div");
+                menuDrop.id = "clog-rarity-menu-global";
+                menuDrop.style.cssText = "display: none; position: fixed; width: 200px; background: #111823 !important; border: 1px solid rgba(255,255,255,0.3) !important; border-radius: 6px !important; box-shadow: 0 12px 36px rgba(0,0,0,0.95) !important; padding: 6px !important; z-index: 9999999 !important; box-sizing: border-box;";
+                menuDrop.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; padding: 2px 4px 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.15); margin-bottom: 4px;">
+                        <button id="clog-rarity-select-all" type="button" style="background: none; border: none; color: #4fc3f7; font-size: 10px; font-weight: bold; cursor: pointer; padding: 0; outline: none;">Marcar Todos</button>
+                        <button id="clog-rarity-clear-all" type="button" style="background: none; border: none; color: #ff8a80; font-size: 10px; font-weight: bold; cursor: pointer; padding: 0; outline: none;">Desmarcar</button>
+                    </div>
+                    <div id="clog-rarity-options" style="max-height: 230px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;">
+                    </div>
+                `;
+                document.body.appendChild(menuDrop);
+
+                const optionsContainer = menuDrop.querySelector("#clog-rarity-options");
+                const btnSelectAll = menuDrop.querySelector("#clog-rarity-select-all");
+                const btnClearAll = menuDrop.querySelector("#clog-rarity-clear-all");
+
+                LISTA_RARIDADES.forEach(r => {
+                    const itemLabel = document.createElement("label");
+                    itemLabel.style.cssText = "display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 11px; color: #eee; cursor: pointer; user-select: none; border-radius: 4px; transition: background 0.15s;";
+                    itemLabel.onmouseover = () => itemLabel.style.background = "rgba(255,255,255,0.12)";
+                    itemLabel.onmouseout = () => itemLabel.style.background = "transparent";
+
+                    const isChecked = raridadesSelecionadas.has(r.id);
+                    itemLabel.innerHTML = `
+                        <input type="checkbox" value="${r.id}" ${isChecked ? "checked" : ""} style="cursor: pointer; accent-color: #2196f3; width: 14px; height: 14px; margin: 0; flex-shrink: 0;">
+                        <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${r.cor}; flex-shrink: 0;"></span>
+                        <span style="flex: 1; font-weight: 500;">${r.nome}</span>
+                    `;
+
+                    const chk = itemLabel.querySelector("input");
+                    chk.addEventListener("change", (e) => {
+                        e.stopPropagation();
+                        if (chk.checked) {
+                            raridadesSelecionadas.add(r.id);
+                        } else {
+                            raridadesSelecionadas.delete(r.id);
+                        }
+                        atualizarTextoBotaoRaridade();
+                        aplicarFiltroClog();
+                    });
+
+                    optionsContainer.appendChild(itemLabel);
+                });
+
+                menuDrop.addEventListener("click", (e) => e.stopPropagation());
+
+                btnSelectAll.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    raridadesSelecionadas.clear();
+                    LISTA_RARIDADES.forEach(r => raridadesSelecionadas.add(r.id));
+                    optionsContainer.querySelectorAll("input[type='checkbox']").forEach(chk => chk.checked = true);
+                    atualizarTextoBotaoRaridade();
+                    aplicarFiltroClog();
+                });
+
+                btnClearAll.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    raridadesSelecionadas.clear();
+                    optionsContainer.querySelectorAll("input[type='checkbox']").forEach(chk => chk.checked = false);
+                    atualizarTextoBotaoRaridade();
+                    aplicarFiltroClog();
+                });
+            }
+            return menuDrop;
+        }
+
         function verificarEInjetarFiltroClog() {
             const clogWindow = document.querySelector(".clog-window");
+            const menuDrop = document.getElementById("clog-rarity-menu-global");
+
             if (!clogWindow) {
+                if (menuDrop) menuDrop.style.display = "none";
                 if (clogListObserver) {
                     clogListObserver.disconnect();
                     clogListObserver = null;
@@ -6400,39 +7147,64 @@
                 return;
             }
 
+            // Garante altura mínima do clog-list para evitar colapso da janela quando há poucas linhas
+            const clogList = clogWindow.querySelector(".clog-list");
+            if (clogList) {
+                clogList.style.setProperty("min-height", "180px", "important");
+            }
+
             // Injeta a barra de filtro se ainda não existir
-            if (!document.getElementById("clog-filter-rarity")) {
+            if (!document.getElementById("clog-filter-rarity-wrapper")) {
                 const head = clogWindow.querySelector(".clog-head") || clogWindow.querySelector(".clog-title");
                 if (head) {
                     const filterBar = document.createElement("div");
                     filterBar.className = "clog-filter-bar";
-                    filterBar.style.cssText = "display: flex; gap: 6px; padding: 6px 12px; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(255,255,255,0.08); align-items: center; box-sizing: border-box;";
+                    filterBar.style.cssText = "display: flex; gap: 6px; padding: 6px 12px; background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.1); align-items: center; box-sizing: border-box; position: relative;";
                     filterBar.innerHTML = `
-                        <select id="clog-filter-rarity" style="flex: 1; background: #151d2a; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 22px; cursor: pointer;">
-                            <option value="">Todas Raridades</option>
-                            <option value="Comum">Comum</option>
-                            <option value="Incomum">Incomum</option>
-                            <option value="Rara">Rara</option>
-                            <option value="Épica">Épica</option>
-                            <option value="Lendária">Lendária</option>
-                            <option value="Mítica">Mítica</option>
-                            <option value="Anciã">Anciã</option>
-                            <option value="Divina">Divina</option>
-                        </select>
-                        <input type="number" id="clog-filter-iv" placeholder="IV Min (ex: 110)" style="width: 105px; background: #151d2a; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 22px;" min="0" max="192">
+                        <div id="clog-filter-rarity-wrapper" style="flex: 1; position: relative;">
+                            <button id="clog-rarity-dropdown-btn" type="button" style="width: 100%; background: #151d2a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; font-size: 10px; padding: 4px 8px; outline: none; height: 24px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 4px; box-sizing: border-box;">
+                                <span id="clog-rarity-btn-text">Todas Raridades</span>
+                                <span style="font-size: 8px; opacity: 0.7;">▼</span>
+                            </button>
+                        </div>
+                        <input type="number" id="clog-filter-iv" placeholder="IV Min (ex: 110)" style="width: 105px; background: #151d2a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; font-size: 10px; padding: 3px 6px; outline: none; height: 24px; box-sizing: border-box;" min="0" max="192">
                     `;
                     head.insertAdjacentElement("afterend", filterBar);
 
-                    const rSel = filterBar.querySelector("#clog-filter-rarity");
+                    const btnDrop = filterBar.querySelector("#clog-rarity-dropdown-btn");
                     const iInp = filterBar.querySelector("#clog-filter-iv");
+                    const mDrop = obterOuCriarMenuDropGlobal();
 
-                    rSel.addEventListener("change", aplicarFiltroClog);
+                    atualizarTextoBotaoRaridade();
+
+                    btnDrop.addEventListener("click", (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const estaAberto = mDrop.style.display === "block";
+                        if (estaAberto) {
+                            mDrop.style.display = "none";
+                        } else {
+                            const rect = btnDrop.getBoundingClientRect();
+                            mDrop.style.top = (rect.bottom + 4) + "px";
+                            mDrop.style.left = rect.left + "px";
+                            mDrop.style.display = "block";
+                        }
+                    });
+
+                    const onDocClick = (e) => {
+                        if (mDrop && !filterBar.contains(e.target) && !mDrop.contains(e.target)) {
+                            mDrop.style.display = "none";
+                        }
+                    };
+                    document.removeEventListener("click", window._clogRarityMenuDismiss);
+                    window._clogRarityMenuDismiss = onDocClick;
+                    document.addEventListener("click", onDocClick);
+
                     iInp.addEventListener("input", aplicarFiltroClog);
                 }
             }
 
             // Observa a lista de capturas para aplicar o filtro dinamicamente quando novas linhas entram
-            const clogList = clogWindow.querySelector(".clog-list");
             if (clogList && !clogListObserver) {
                 clogListObserver = new MutationObserver(() => {
                     aplicarFiltroClog();
@@ -6449,7 +7221,6 @@
             }
         }
 
-        // Verificação periódica a cada 1 segundo (0% impacto de CPU)
         setInterval(verificarEInjetarFiltroClog, 1000);
         verificarEInjetarFiltroClog();
     }
@@ -6715,11 +7486,2662 @@
         console.warn("[Poké Leitor] Erro ao carregar dados salvos:", e);
     }
 
-    carregarCreatures();
-    criarPainel();
-    observarTooltips();
-    iniciarEscutasEventos();
-    observarLogDeCapturas();
-    observarResgateDiario();
-    atualizarBannerDetectorShiny();
+    // =========================================================================
+    // SISTEMA COMPLETO DE ANÁLISE DE CAPTURA (WEBSOCKET, INDEXEDDB & ESTATÍSTICA)
+    // =========================================================================
+
+    const CATCH_ANALYZER_DB_NAME = "JustPokedexCatchAnalyzer";
+    const CATCH_ANALYZER_DB_VERSION = 1;
+    const CATCH_ANALYZER_STORAGE_KEY = "pokemonCatchAnalyzerData";
+    const CATCH_ANALYZER_BALLS_KEY = "pokemonCatchAnalyzerBalls";
+    const CATCH_ANALYZER_ENABLED_KEY = "pokemonCatchAnalyzerEnabled";
+
+    let dbInstance = null;
+    let dbStatusText = "Inicializando...";
+    let dadosCaptura = [];
+    let catalogoBolas = {};
+    let isCapturaAtiva = true;
+
+    const mobsCampoMap = new Map();
+    let dadosAnalyzerGame = { ballsUsed: 0, captures: 0, shinyCaptures: 0, lastUpdate: 0, temDados: false };
+
+    let metaAmostraConfig = 500;
+    let minTentativasMelhorBola = 100;
+    let grupoDetalheSelecionado = null;
+
+    const MAPA_BALL_ID_NOME = {
+        1: "Poké Ball",
+        2: "Great Ball",
+        3: "Super Ball",
+        4: "Ultra Ball",
+        5: "Safari Ball",
+        6: "Master Ball"
+    };
+
+    const filtrosCaptura = {
+        speciesName: "",
+        ballName: "",
+        ballId: "",
+        resultado: "todos", // todos, sucesso, falha
+        variante: "todos",  // todos, normal, shiny, desconhecido
+        modo: "todos",      // todos, auto, manual
+        dataInicio: "",
+        dataFim: "",
+        minTentativas: 1,
+        maxTentativas: "",
+        minTaxa: "",
+        maxTaxa: "",
+        qualidadeAmostra: "todas", // todas, muito_pequena, pequena, media, boa, confiavel
+        agrupamento: "combinacao", // pokemon, pokebola, combinacao
+        ordenacao: "tentativas_desc"
+    };
+
+    // -------------------------------------------------------------------------
+    // CAMADA DE PERSISTÊNCIA: INDEXEDDB COM FALLBACK LOCALSTORAGE
+    // -------------------------------------------------------------------------
+    function initCatchAnalyzerDB() {
+        return new Promise((resolve) => {
+            try {
+                if (!window.indexedDB) {
+                    dbStatusText = "localStorage (Fallback - Sem IndexedDB)";
+                    carregarDadosFallbackLocalStorage();
+                    resolve(false);
+                    return;
+                }
+
+                const request = indexedDB.open(CATCH_ANALYZER_DB_NAME, CATCH_ANALYZER_DB_VERSION);
+
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+
+                    if (!db.objectStoreNames.contains("catches")) {
+                        const catchStore = db.createObjectStore("catches", { keyPath: "id" });
+                        catchStore.createIndex("speciesName", "speciesName", { unique: false });
+                        catchStore.createIndex("ballId", "ballId", { unique: false });
+                        catchStore.createIndex("timestamp", "timestamp", { unique: false });
+                        catchStore.createIndex("success", "success", { unique: false });
+                    }
+
+                    if (!db.objectStoreNames.contains("balls")) {
+                        db.createObjectStore("balls", { keyPath: "ballId" });
+                    }
+
+                    if (!db.objectStoreNames.contains("settings")) {
+                        db.createObjectStore("settings", { keyPath: "key" });
+                    }
+
+                    if (!db.objectStoreNames.contains("metadata")) {
+                        db.createObjectStore("metadata", { keyPath: "key" });
+                    }
+                };
+
+                request.onsuccess = (e) => {
+                    dbInstance = e.target.result;
+                    dbStatusText = "IndexedDB (Ativo)";
+                    carregarTodosDadosDB().then(resolve);
+                };
+
+                request.onerror = (err) => {
+                    console.warn("[CatchAnalyzer] IndexedDB erro, utilizando localStorage fallback:", err);
+                    dbStatusText = "localStorage (Fallback - Erro IDB)";
+                    carregarDadosFallbackLocalStorage();
+                    resolve(false);
+                };
+            } catch (e) {
+                dbStatusText = "localStorage (Fallback - Exceção)";
+                carregarDadosFallbackLocalStorage();
+                resolve(false);
+            }
+        });
+    }
+
+    function carregarDadosFallbackLocalStorage() {
+        try {
+            const salvo = localStorage.getItem(CATCH_ANALYZER_STORAGE_KEY);
+            if (salvo) dadosCaptura = JSON.parse(salvo) || [];
+
+            const bolas = localStorage.getItem(CATCH_ANALYZER_BALLS_KEY);
+            if (bolas) catalogoBolas = JSON.parse(bolas) || {};
+
+            const enabled = localStorage.getItem(CATCH_ANALYZER_ENABLED_KEY);
+            if (enabled !== null) isCapturaAtiva = enabled === "true";
+        } catch (e) {
+            dadosCaptura = [];
+            catalogoBolas = {};
+        }
+    }
+
+    function salvarFallbackLocalStorage() {
+        try {
+            localStorage.setItem(CATCH_ANALYZER_STORAGE_KEY, JSON.stringify(dadosCaptura));
+            localStorage.setItem(CATCH_ANALYZER_BALLS_KEY, JSON.stringify(catalogoBolas));
+            localStorage.setItem(CATCH_ANALYZER_ENABLED_KEY, String(isCapturaAtiva));
+        } catch (e) { }
+    }
+
+    function carregarTodosDadosDB() {
+        return new Promise((resolve) => {
+            if (!dbInstance) {
+                carregarDadosFallbackLocalStorage();
+                resolve();
+                return;
+            }
+
+            try {
+                const tx = dbInstance.transaction(["catches", "balls", "settings"], "readonly");
+                const catchStore = tx.objectStore("catches");
+                const ballStore = tx.objectStore("balls");
+
+                const reqCatches = catchStore.getAll();
+                reqCatches.onsuccess = () => {
+                    dadosCaptura = reqCatches.result || [];
+                };
+
+                const reqBalls = ballStore.getAll();
+                reqBalls.onsuccess = () => {
+                    const res = reqBalls.result || [];
+                    catalogoBolas = {};
+                    res.forEach(b => {
+                        if (b && b.ballId !== undefined) {
+                            catalogoBolas[b.ballId] = b;
+                        }
+                    });
+                };
+
+                tx.oncomplete = () => {
+                    const salvoEnabled = localStorage.getItem(CATCH_ANALYZER_ENABLED_KEY);
+                    if (salvoEnabled !== null) {
+                        isCapturaAtiva = salvoEnabled === "true";
+                    }
+                    resolve();
+                };
+
+                tx.onerror = () => {
+                    carregarDadosFallbackLocalStorage();
+                    resolve();
+                };
+            } catch (e) {
+                carregarDadosFallbackLocalStorage();
+                resolve();
+            }
+        });
+    }
+
+    function salvarRegistroCatchDB(registro) {
+        salvarFallbackLocalStorage();
+
+        if (!dbInstance) return;
+        try {
+            const tx = dbInstance.transaction(["catches"], "readwrite");
+            tx.objectStore("catches").put(registro);
+        } catch (e) { }
+    }
+
+    function salvarBolaCatalogoDB(bolaInfo) {
+        salvarFallbackLocalStorage();
+
+        if (!dbInstance) return;
+        try {
+            const tx = dbInstance.transaction(["balls"], "readwrite");
+            tx.objectStore("balls").put(bolaInfo);
+        } catch (e) { }
+    }
+
+    function limparDadosHistoricoDB() {
+        dadosCaptura = [];
+        catalogoBolas = {};
+        salvarFallbackLocalStorage();
+
+        if (!dbInstance) return Promise.resolve();
+        return new Promise((resolve) => {
+            try {
+                const tx = dbInstance.transaction(["catches", "balls"], "readwrite");
+                tx.objectStore("catches").clear();
+                tx.objectStore("balls").clear();
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => resolve();
+            } catch (e) {
+                resolve();
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // RECEPTOR E MENSAGENS WEBSOCKET (FIELD, CATCH-RESULT, ANALYZER)
+    // -------------------------------------------------------------------------
+    function processarMensagemCatchAnalyzer(msg) {
+        if (!msg) return;
+
+        if (typeof msg === "string") {
+            try {
+                msg = JSON.parse(msg);
+            } catch (e) {
+                return;
+            }
+        }
+
+        if (Array.isArray(msg)) {
+            msg.forEach(item => processarMensagemCatchAnalyzer(item));
+            return;
+        }
+
+        if (typeof msg !== "object") return;
+
+        const tipo = String(msg.type || msg.action || msg.event || msg.op || msg.kind || "").toLowerCase();
+
+        if (tipo === "field") {
+            wsStats.fieldCount++;
+            processarMensagemField(msg);
+            return;
+        }
+
+        if (tipo === "analyzer") {
+            wsStats.analyzerCount++;
+            processarMensagemAnalyzerGame(msg);
+            return;
+        }
+
+        const ehCatch = tipo === "catch-result" ||
+            tipo === "catch_result" ||
+            tipo.includes("catch") ||
+            msg.success !== undefined ||
+            msg.caught !== undefined ||
+            msg.ballName !== undefined ||
+            msg.ballId !== undefined ||
+            msg.ball !== undefined ||
+            msg.pokeball !== undefined;
+
+        if (ehCatch) {
+            wsStats.catchResultCount++;
+            wsStats.lastCatchResultTime = Date.now();
+            processarCatchResultMsg(msg);
+            return;
+        }
+
+        // Inspeção em propriedades internas para pacotes empacotados (detail, data, payload)
+        if (msg.detail && typeof msg.detail === "object") {
+            processarMensagemCatchAnalyzer(msg.detail);
+        }
+        if (msg.data && typeof msg.data === "object") {
+            processarMensagemCatchAnalyzer(msg.data);
+        }
+        if (msg.payload && typeof msg.payload === "object") {
+            processarMensagemCatchAnalyzer(msg.payload);
+        }
+    }
+
+    function processarMensagemField(msg) {
+        const agora = Date.now();
+
+        function extrairEMantermob(obj) {
+            if (!obj || typeof obj !== "object") return;
+            if (obj.row !== undefined && obj.col !== undefined) {
+                const r = Number(obj.row);
+                const c = Number(obj.col);
+                if (Number.isFinite(r) && Number.isFinite(c)) {
+                    const chave = `${r}::${c}`;
+                    mobsCampoMap.set(chave, {
+                        row: r,
+                        col: c,
+                        slot: obj.slot !== undefined ? Number(obj.slot) : null,
+                        speciesId: obj.speciesId !== undefined ? Number(obj.speciesId) : (obj.species !== undefined ? Number(obj.species) : null),
+                        shiny: obj.shiny === true ? true : (obj.shiny === false ? false : null),
+                        hp: obj.hp !== undefined ? Number(obj.hp) : null,
+                        maxHp: obj.maxHp !== undefined ? Number(obj.maxHp) : (obj.maxhp !== undefined ? Number(obj.maxhp) : null),
+                        dead: Boolean(obj.dead),
+                        respawning: Boolean(obj.respawning),
+                        timestamp: agora
+                    });
+                }
+            }
+            if (Array.isArray(obj)) {
+                obj.forEach(extrairEMantermob);
+            } else if (Array.isArray(obj.mobs)) {
+                obj.mobs.forEach(extrairEMantermob);
+            } else if (typeof obj === "object") {
+                Object.values(obj).forEach(val => {
+                    if (val && typeof val === "object" && (val.row !== undefined || val.speciesId !== undefined || val.mobs !== undefined)) {
+                        extrairEMantermob(val);
+                    }
+                });
+            }
+        }
+
+        extrairEMantermob(msg);
+
+        // Limpeza de mobs no cache com mais de 30 segundos
+        for (const [chave, mob] of mobsCampoMap.entries()) {
+            if (agora - mob.timestamp > 30000) {
+                mobsCampoMap.delete(chave);
+            }
+        }
+    }
+
+    function processarMensagemAnalyzerGame(msg) {
+        dadosAnalyzerGame = {
+            ballsUsed: Number(msg.ballsUsed ?? msg.balls ?? 0),
+            captures: Number(msg.captures ?? msg.caught ?? 0),
+            shinyCaptures: Number(msg.shinyCaptures ?? msg.shiny_captures ?? 0),
+            lastUpdate: Date.now(),
+            temDados: true
+        };
+        if (abaAtual === "captura") {
+            atualizarPainelValidacaoAnalyzer();
+        }
+    }
+
+    function processarCatchResultMsg(msg) {
+        if (!isCapturaAtiva) {
+            isCapturaAtiva = true;
+            salvarFallbackLocalStorage();
+        }
+
+        const agora = Date.now();
+        const timestamp = Number(msg.timestamp || msg.time || msg.ts || agora);
+        const speciesName = String(msg.speciesName || msg.pokemonName || msg.pokemon || msg.species || msg.name || "Desconhecido").trim();
+        const ballId = Number(msg.ballId ?? msg.ball_id ?? 0);
+        let ballName = String(msg.ballName || msg.ball || msg.pokeball || msg.ball_name || "").trim();
+
+        if (!ballName && MAPA_BALL_ID_NOME[ballId]) {
+            ballName = MAPA_BALL_ID_NOME[ballId];
+        }
+        if (!ballName) {
+            ballName = "Poké Ball";
+        }
+
+        const row = Number(msg.row ?? msg.r ?? msg.y ?? 0);
+        const col = Number(msg.col ?? msg.c ?? msg.x ?? 0);
+
+        let success = false;
+        if (msg.success !== undefined && msg.success !== null) {
+            success = Boolean(msg.success);
+        } else if (msg.caught !== undefined && msg.caught !== null) {
+            success = Boolean(msg.caught);
+        } else {
+            success = Boolean(msg.result === "success" || msg.status === "success" || msg.status === "caught");
+        }
+
+        const auto = Boolean(msg.auto || msg.isAuto || msg.is_auto);
+
+        // Desduplicação inteligente (< 2000ms)
+        const jaExisteDuplicado = dadosCaptura.some(r => {
+            const mesmaEspecie = r.speciesName.toLowerCase() === speciesName.toLowerCase();
+            const mesmoBallId = r.ballId === ballId;
+            const mesmaPos = r.row === row && r.col === col;
+            const mesmoResultado = r.success === success;
+            const mesmoModo = r.auto === auto;
+            const mesmoTempo = Math.abs(agora - r.timestamp) < 2000;
+            return mesmaEspecie && mesmoBallId && mesmaPos && mesmoResultado && mesmoModo && mesmoTempo;
+        });
+
+        if (jaExisteDuplicado) {
+            return;
+        }
+
+        // Associação com dados do mapa field mais recente (< 30s)
+        const mobField = mobsCampoMap.get(`${row}::${col}`);
+        let speciesId = null;
+        let shiny = null;
+        let shinySource = null;
+        let slot = null;
+        let maxHp = null;
+
+        if (mobField && (agora - mobField.timestamp <= 30000)) {
+            speciesId = mobField.speciesId;
+            shiny = mobField.shiny;
+            shinySource = mobField.shiny !== null ? "field" : null;
+            slot = mobField.slot;
+            maxHp = mobField.maxHp;
+        }
+
+        const recordId = `${timestamp}::${speciesName}::${ballId}::${row}::${col}::${success}`;
+
+        const novoRegistro = {
+            id: recordId,
+            timestamp,
+            speciesName,
+            ballName,
+            ballId,
+            success,
+            auto,
+            row,
+            col,
+            speciesId,
+            shiny,
+            shinySource,
+            slot,
+            maxHp,
+            schemaVersion: 1
+        };
+
+        dadosCaptura.push(novoRegistro);
+        salvarRegistroCatchDB(novoRegistro);
+
+        // Atualiza catálogo local de Pokébolas
+        if (ballId > 0 || ballName) {
+            if (!catalogoBolas[ballId]) {
+                catalogoBolas[ballId] = {
+                    ballId,
+                    ballName,
+                    firstSeenAt: agora,
+                    lastSeenAt: agora
+                };
+            } else {
+                catalogoBolas[ballId].ballName = ballName;
+                catalogoBolas[ballId].lastSeenAt = agora;
+            }
+            salvarBolaCatalogoDB(catalogoBolas[ballId]);
+        }
+
+        // Dispara evento público para escutas de terceiros
+        try {
+            window.dispatchEvent(
+                new CustomEvent("justpokedex-catch-result", {
+                    detail: novoRegistro
+                })
+            );
+        } catch (e) { }
+
+        if (abaAtual === "captura") {
+            renderizarAbaCaptura();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CÁLCULOS ESTATÍSTICOS (WILSON SCORE 95%, SEQUÊNCIAS, MÉDIAS, MEDIANAS)
+    // -------------------------------------------------------------------------
+    function calcularIntervaloConfiancaWilson(k, n, confidenceLevel = 0.95) {
+        if (n <= 0) return { lower: "0.00", upper: "0.00" };
+        const z = 1.96; // 95% CI
+        const p = k / n;
+        const denominator = 1 + (z * z) / n;
+        const centreAdjustedProbability = p + (z * z) / (2 * n);
+        const adjustedStandardDeviation = Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
+
+        const lowerBound = (centreAdjustedProbability - z * adjustedStandardDeviation) / denominator;
+        const upperBound = (centreAdjustedProbability + z * adjustedStandardDeviation) / denominator;
+
+        return {
+            lower: Math.max(0, lowerBound * 100).toFixed(2),
+            upper: Math.min(100, upperBound * 100).toFixed(2)
+        };
+    }
+
+    function obterDadosFiltrados() {
+        return dadosCaptura.filter(rec => {
+            if (filtrosCaptura.speciesName) {
+                const termo = filtrosCaptura.speciesName.toLowerCase().trim();
+                if (!rec.speciesName.toLowerCase().includes(termo)) return false;
+            }
+            if (filtrosCaptura.ballName) {
+                const termo = filtrosCaptura.ballName.toLowerCase().trim();
+                if (!rec.ballName.toLowerCase().includes(termo)) return false;
+            }
+            if (filtrosCaptura.ballId !== "" && filtrosCaptura.ballId !== null && filtrosCaptura.ballId !== undefined) {
+                if (Number(rec.ballId) !== Number(filtrosCaptura.ballId)) return false;
+            }
+            if (filtrosCaptura.resultado === "sucesso" && !rec.success) return false;
+            if (filtrosCaptura.resultado === "falha" && rec.success) return false;
+
+            if (filtrosCaptura.modo === "auto" && !rec.auto) return false;
+            if (filtrosCaptura.modo === "manual" && rec.auto) return false;
+
+            if (filtrosCaptura.variante === "normal" && rec.shiny === true) return false;
+            if (filtrosCaptura.variante === "shiny" && rec.shiny !== true) return false;
+            if (filtrosCaptura.variante === "desconhecido" && rec.shiny !== null) return false;
+
+            if (filtrosCaptura.dataInicio) {
+                const dtInicio = new Date(filtrosCaptura.dataInicio).getTime();
+                if (rec.timestamp < dtInicio) return false;
+            }
+            if (filtrosCaptura.dataFim) {
+                const dtFim = new Date(filtrosCaptura.dataFim).getTime() + 86400000;
+                if (rec.timestamp > dtFim) return false;
+            }
+            return true;
+        });
+    }
+
+    function calcularEstatisticasAgrupadas(dados, tipoAgrupamento) {
+        const gruposMap = new Map();
+
+        // Ordena cronologicamente para sequências
+        const dadosOrdenados = [...dados].sort((a, b) => a.timestamp - b.timestamp);
+
+        dadosOrdenados.forEach(rec => {
+            let chave = "";
+            let rotuloPokemon = rec.speciesName;
+            let rotuloBola = rec.ballName;
+            let ballId = rec.ballId;
+
+            if (tipoAgrupamento === "pokemon") {
+                chave = rec.speciesName.toLowerCase();
+            } else if (tipoAgrupamento === "pokebola") {
+                chave = `ball_${rec.ballId}`;
+            } else {
+                chave = `${rec.speciesName.toLowerCase()}::${rec.ballId}`;
+            }
+
+            if (!gruposMap.has(chave)) {
+                gruposMap.set(chave, {
+                    chave,
+                    speciesName: rotuloPokemon,
+                    ballName: rotuloBola,
+                    ballId: ballId,
+                    tentativas: 0,
+                    capturas: 0,
+                    falhas: 0,
+                    shinyCapturas: 0,
+                    normalCapturas: 0,
+                    desconhecidoShiny: 0,
+                    firstDate: rec.timestamp,
+                    lastDate: rec.timestamp,
+                    maiorSequenciaFalhas: 0,
+                    sequenciaFalhasAtual: 0,
+                    intervalosEntreCapturas: [],
+                    tentativasDesdeUltimaCaptura: 0,
+                    registros: []
+                });
+            }
+
+            const g = gruposMap.get(chave);
+            g.tentativas++;
+            g.registros.push(rec);
+
+            if (rec.timestamp < g.firstDate) g.firstDate = rec.timestamp;
+            if (rec.timestamp > g.lastDate) g.lastDate = rec.timestamp;
+
+            if (rec.shiny === true) g.shinyCapturas++;
+            else if (rec.shiny === false) g.normalCapturas++;
+            else g.desconhecidoShiny++;
+
+            if (rec.success) {
+                g.capturas++;
+                g.intervalosEntreCapturas.push(g.tentativasDesdeUltimaCaptura + 1);
+                g.tentativasDesdeUltimaCaptura = 0;
+                g.sequenciaFalhasAtual = 0;
+            } else {
+                g.falhas++;
+                g.tentativasDesdeUltimaCaptura++;
+                g.sequenciaFalhasAtual++;
+                if (g.sequenciaFalhasAtual > g.maiorSequenciaFalhas) {
+                    g.maiorSequenciaFalhas = g.sequenciaFalhasAtual;
+                }
+            }
+        });
+
+        const minT = Number(filtrosCaptura.minTentativas) || 1;
+        const maxT = Number(filtrosCaptura.maxTentativas) || Infinity;
+        const minTx = Number(filtrosCaptura.minTaxa) || 0;
+        const maxTx = Number(filtrosCaptura.maxTaxa) || 100;
+
+        let resultado = Array.from(gruposMap.values()).filter(g => {
+            if (g.tentativas < minT || g.tentativas > maxT) return false;
+            const taxa = (g.capturas / g.tentativas) * 100;
+            if (taxa < minTx || taxa > maxTx) return false;
+
+            if (filtrosCaptura.qualidadeAmostra !== "todas") {
+                if (filtrosCaptura.qualidadeAmostra === "muito_pequena" && g.tentativas >= 30) return false;
+                if (filtrosCaptura.qualidadeAmostra === "pequena" && (g.tentativas < 30 || g.tentativas >= 100)) return false;
+                if (filtrosCaptura.qualidadeAmostra === "media" && (g.tentativas < 100 || g.tentativas >= 500)) return false;
+                if (filtrosCaptura.qualidadeAmostra === "boa" && (g.tentativas < 500 || g.tentativas >= 1000)) return false;
+                if (filtrosCaptura.qualidadeAmostra === "confiavel" && g.tentativas < 1000) return false;
+            }
+            return true;
+        });
+
+        // Métricas complementares
+        resultado.forEach(g => {
+            g.taxa = (g.capturas / g.tentativas) * 100;
+            g.wilsonCI = calcularIntervaloConfiancaWilson(g.capturas, g.tentativas);
+
+            // Média de tentativas entre capturas
+            if (g.intervalosEntreCapturas.length > 0) {
+                const soma = g.intervalosEntreCapturas.reduce((a, b) => a + b, 0);
+                g.mediaTentativasEntreCapturas = (soma / g.intervalosEntreCapturas.length).toFixed(1);
+
+                // Mediana
+                const ordenados = [...g.intervalosEntreCapturas].sort((a, b) => a - b);
+                const mid = Math.floor(ordenados.length / 2);
+                g.medianaTentativasEntreCapturas = ordenados.length % 2 !== 0
+                    ? ordenados[mid]
+                    : ((ordenados[mid - 1] + ordenados[mid]) / 2).toFixed(1);
+            } else {
+                g.mediaTentativasEntreCapturas = "-";
+                g.medianaTentativasEntreCapturas = "-";
+            }
+
+            // Taxa nas últimas 25, 50, 100
+            const ult = (n) => {
+                const slice = g.registros.slice(-n);
+                if (slice.length === 0) return "-";
+                const caps = slice.filter(r => r.success).length;
+                return ((caps / slice.length) * 100).toFixed(1) + "%";
+            };
+
+            g.taxaUltimas25 = ult(25);
+            g.taxaUltimas50 = ult(50);
+            g.taxaUltimas100 = ult(100);
+
+            // Classificação da Amostra
+            if (g.tentativas < 30) {
+                g.amostraClass = "muito_pequena";
+                g.amostraBadge = `<span class="catch-badge error" title="Amostra muito pequena (<30 tentativas). Altamente variável.">Amostra Muito Pequena</span>`;
+            } else if (g.tentativas < 100) {
+                g.amostraClass = "pequena";
+                g.amostraBadge = `<span class="catch-badge warning" title="Amostra pequena (30-99 tentativas). Sujeita a variações.">Amostra Pequena</span>`;
+            } else if (g.tentativas < 500) {
+                g.amostraClass = "media";
+                g.amostraBadge = `<span class="catch-badge info" title="Amostra média (100-499 tentativas). Tendência observada.">Amostra Média</span>`;
+            } else if (g.tentativas < 1000) {
+                g.amostraClass = "boa";
+                g.amostraBadge = `<span class="catch-badge teal" title="Amostra boa (500-999 tentativas). Estimativa sólida.">Amostra Boa</span>`;
+            } else {
+                g.amostraClass = "confiavel";
+                g.amostraBadge = `<span class="catch-badge success" title="Amostra confiável (1000+ tentativas). Alta precisão estatística.">Amostra Confiável</span>`;
+            }
+        });
+
+        // Ordenação
+        resultado.sort((a, b) => {
+            const ord = filtrosCaptura.ordenacao;
+            if (ord === "taxa_desc") {
+                // Para taxa desc, prioriza grupos com tentativas suficientes para evitar distorção (1 em 1 = 100%)
+                const aValido = a.tentativas >= minTentativasMelhorBola ? 1 : 0;
+                const bValido = b.tentativas >= minTentativasMelhorBola ? 1 : 0;
+                if (aValido !== bValido) return bValido - aValido;
+                return b.taxa - a.taxa || b.tentativas - a.tentativas;
+            }
+            if (ord === "taxa_asc") return a.taxa - b.taxa || b.tentativas - a.tentativas;
+            if (ord === "tentativas_desc") return b.tentativas - a.tentativas;
+            if (ord === "tentativas_asc") return a.tentativas - b.tentativas;
+            if (ord === "capturas_desc") return b.capturas - a.capturas;
+            if (ord === "falhas_desc") return b.falhas - a.falhas;
+            if (ord === "maior_sequencia_desc") return b.maiorSequenciaFalhas - a.maiorSequenciaFalhas;
+            if (ord === "alfabetica_poke") return a.speciesName.localeCompare(b.speciesName);
+            if (ord === "alfabetica_bola") return a.ballName.localeCompare(b.ballName);
+            if (ord === "mais_recente") return b.lastDate - a.lastDate;
+            return b.tentativas - a.tentativas;
+        });
+
+        return resultado;
+    }
+
+    // -------------------------------------------------------------------------
+    // RENDERIZAÇÃO DA INTERFACE DA ABA "ANÁLISE DE CAPTURA"
+    // -------------------------------------------------------------------------
+    function renderizarAbaCaptura() {
+        const container = document.getElementById("catch-analyzer-content");
+        if (!container) return;
+
+        const dadosFiltrados = obterDadosFiltrados();
+        const estatisticas = calcularEstatisticasAgrupadas(dadosFiltrados, filtrosCaptura.agrupamento);
+
+        // Totais gerais
+        const totalTentativas = dadosFiltrados.length;
+        const totalCapturas = dadosFiltrados.filter(r => r.success).length;
+        const totalFalhas = totalTentativas - totalCapturas;
+        const taxaGeral = totalTentativas > 0 ? ((totalCapturas / totalTentativas) * 100).toFixed(2) : "0.00";
+        const wilsonGeral = calcularIntervaloConfiancaWilson(totalCapturas, totalTentativas);
+
+        const totalShiny = dadosFiltrados.filter(r => r.success && r.shiny === true).length;
+        const totalNormal = dadosFiltrados.filter(r => r.success && r.shiny === false).length;
+
+        // Pokémon mais tentado e mais capturado
+        const pokeAttemptMap = {};
+        const pokeCapMap = {};
+        dadosFiltrados.forEach(r => {
+            pokeAttemptMap[r.speciesName] = (pokeAttemptMap[r.speciesName] || 0) + 1;
+            if (r.success) pokeCapMap[r.speciesName] = (pokeCapMap[r.speciesName] || 0) + 1;
+        });
+
+        let pokeMaisTentado = "-";
+        let maxAttempt = 0;
+        Object.entries(pokeAttemptMap).forEach(([nome, cnt]) => {
+            if (cnt > maxAttempt) { maxAttempt = cnt; pokeMaisTentado = `${nome} (${cnt})`; }
+        });
+
+        let pokeMaisCapturado = "-";
+        let maxCap = 0;
+        Object.entries(pokeCapMap).forEach(([nome, cnt]) => {
+            if (cnt > maxCap) { maxCap = cnt; pokeMaisCapturado = `${nome} (${cnt})`; }
+        });
+
+        // Pokébola mais utilizada e Pokébola com maior taxa observada
+        const ballStats = {};
+        dadosFiltrados.forEach(r => {
+            if (!ballStats[r.ballId]) {
+                ballStats[r.ballId] = { nome: r.ballName, id: r.ballId, tot: 0, cap: 0 };
+            }
+            ballStats[r.ballId].tot++;
+            if (r.success) ballStats[r.ballId].cap++;
+        });
+
+        let bolaMaisUtilizada = "-";
+        let maxBallUsed = 0;
+        Object.values(ballStats).forEach(b => {
+            if (b.tot > maxBallUsed) { maxBallUsed = b.tot; bolaMaisUtilizada = `${b.nome} (${b.tot})`; }
+        });
+
+        let bolaMaiorTaxa = "-";
+        let maxRateVal = -1;
+        Object.values(ballStats).forEach(b => {
+            if (b.tot >= minTentativasMelhorBola) {
+                const r = (b.cap / b.tot) * 100;
+                if (r > maxRateVal) {
+                    maxRateVal = r;
+                    bolaMaiorTaxa = `${b.nome} (${r.toFixed(1)}%)`;
+                }
+            }
+        });
+        if (bolaMaiorTaxa === "-" && Object.keys(ballStats).length > 0) {
+            bolaMaiorTaxa = `Mínimo de ${minTentativasMelhorBola} tent. necessário`;
+        }
+
+        // Maior sequência geral de falhas
+        let maiorSeqGeral = 0;
+        let seqAtual = 0;
+        const dadosOrdenados = [...dadosFiltrados].sort((a, b) => a.timestamp - b.timestamp);
+        dadosOrdenados.forEach(r => {
+            if (!r.success) {
+                seqAtual++;
+                if (seqAtual > maiorSeqGeral) maiorSeqGeral = seqAtual;
+            } else {
+                seqAtual = 0;
+            }
+        });
+
+        // Tempo desde a última captura
+        let tempoUltimaCapTexto = "-";
+        const ultimasCap = dadosOrdenados.filter(r => r.success);
+        if (ultimasCap.length > 0) {
+            const ultTs = ultimasCap[ultimasCap.length - 1].timestamp;
+            const diffMs = Date.now() - ultTs;
+            const min = Math.floor(diffMs / 60000);
+            if (min < 1) tempoUltimaCapTexto = "Há menos de 1 min";
+            else if (min < 60) tempoUltimaCapTexto = `Há ${min} min`;
+            else {
+                const hrs = Math.floor(min / 60);
+                tempoUltimaCapTexto = `Há ${hrs}h ${min % 60}m`;
+            }
+        }
+
+        container.innerHTML = `
+            <div id="tab-captura-inner">
+                <!-- CONTROLES PRINCIPAIS DA SESSÃO -->
+                <div class="catch-controls-bar">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span class="catch-status-badge ${isCapturaAtiva ? '' : 'paused'}">
+                            ${isCapturaAtiva ? '● Captura Ativa' : '⏸ Captura Pausada'}
+                        </span>
+                        <span style="color: #64748b; font-size: 9px;">• ${formatarNumero(wsStats.receivedMessagesCount)} msgs WS</span>
+                    </div>
+
+                    <div class="catch-btn-group">
+                        <button id="btn-toggle-captura" type="button" class="catch-btn ${isCapturaAtiva ? 'danger' : 'primary'}">
+                            ${isCapturaAtiva ? '⏸ Pausar' : '▶ Retomar'}
+                        </button>
+                        <button id="btn-recalcular-stats" type="button" class="catch-btn">🔄 Recalcular</button>
+                        <button id="btn-limpar-historico" type="button" class="catch-btn danger">🗑️ Limpar</button>
+                    </div>
+                </div>
+
+                <!-- CARDS DE RESUMO ESTATÍSTICO (6 PAINÉIS) -->
+                <div class="catch-cards-grid">
+                    <div class="catch-stat-card">
+                        <span class="card-lbl">Tentativas</span>
+                        <span class="card-val">${formatarNumero(totalTentativas)}</span>
+                        <span class="card-sub">Tentativas salvas</span>
+                    </div>
+                    <div class="catch-stat-card">
+                        <span class="card-lbl">Capturas</span>
+                        <span class="card-val" style="color: #34d399;">${formatarNumero(totalCapturas)}</span>
+                        <span class="card-sub">Sucessos totais</span>
+                    </div>
+                    <div class="catch-stat-card">
+                        <span class="card-lbl">Falhas</span>
+                        <span class="card-val" style="color: #f87171;">${formatarNumero(totalFalhas)}</span>
+                        <span class="card-sub">Fugas / Erros</span>
+                    </div>
+                    <div class="catch-stat-card">
+                        <span class="card-lbl">Taxa Geral</span>
+                        <span class="card-val" style="color: #f59e0b;">${taxaGeral}%</span>
+                        <span class="card-sub">Capturas / Tentativas</span>
+                    </div>
+                    <div class="catch-stat-card">
+                        <span class="card-lbl">Capturas Shiny</span>
+                        <span class="card-val" style="color: #f472b6;">✨ ${formatarNumero(totalShiny)}</span>
+                        <span class="card-sub">Shinies confirmados</span>
+                    </div>
+                    <div class="catch-stat-card">
+                        <span class="card-lbl">Bola Mais Utilizada</span>
+                        <span class="card-val" style="font-size: 10px; color: #a78bfa;" title="${escapeHtml(bolaMaisUtilizada)}">${escapeHtml(bolaMaisUtilizada)}</span>
+                        <span class="card-sub">Maior volume</span>
+                    </div>
+                </div>
+
+                <!-- TABELA DE ESTATÍSTICAS AGRUPADAS -->
+                <div class="catch-table-wrapper" style="margin-top: 10px;">
+                    <table class="catch-table">
+                        <thead>
+                            <tr>
+                                <th>${filtrosCaptura.agrupamento === 'pokebola' ? 'Pokébola' : 'Pokémon'}</th>
+                                ${filtrosCaptura.agrupamento === 'combinacao' ? '<th>Pokébola</th>' : ''}
+                                <th>Ball ID</th>
+                                <th style="text-align: right;">Tentativas</th>
+                                <th style="text-align: right;">Capturas</th>
+                                <th style="text-align: right;">Falhas</th>
+                                <th style="text-align: right;">Taxa Real %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${renderizarLinhasTabelaEstatisticas(estatisticas)}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        configurarEventosFiltrosEAcoes();
+    }
+
+    function renderizarLinhasTabelaEstatisticas(estatisticas) {
+        if (estatisticas.length === 0) {
+            return `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #64748b;">Nenhuma tentativa de captura encontrada.</td></tr>`;
+        }
+
+        return estatisticas.map(g => {
+            return `
+                <tr class="catch-table-row" data-chave="${escapeHtml(g.chave)}">
+                    <td><strong>${escapeHtml(g.speciesName)}</strong></td>
+                    ${filtrosCaptura.agrupamento === 'combinacao' ? `<td>${escapeHtml(g.ballName)}</td>` : ''}
+                    <td style="color: #94a3b8; font-size: 10px;">${g.ballId || '-'}</td>
+                    <td style="text-align: right; font-weight: bold;">${formatarNumero(g.tentativas)}</td>
+                    <td style="text-align: right; color: #34d399; font-weight: bold;">${formatarNumero(g.capturas)}</td>
+                    <td style="text-align: right; color: #f87171;">${formatarNumero(g.falhas)}</td>
+                    <td style="text-align: right; color: #f59e0b; font-weight: bold; font-size: 11px;">${g.taxa.toFixed(2)}%</td>
+                </tr>
+            `;
+        }).join("");
+    }
+
+    // -------------------------------------------------------------------------
+    // DESENHO DOS GRÁFICOS EM CANVAS NATIVO (SEM DEPENDÊNCIAS EXTERNAS)
+    // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // EVENTOS, BOTÕES E CONFIGURAÇÃO DA INTERFACE DA CAPTURA
+    // -------------------------------------------------------------------------
+    function configurarEventosFiltrosEAcoes() {
+        const btnToggle = document.getElementById("btn-toggle-captura");
+        if (btnToggle) {
+            btnToggle.onclick = () => {
+                isCapturaAtiva = !isCapturaAtiva;
+                salvarFallbackLocalStorage();
+                renderizarAbaCaptura();
+            };
+        }
+
+        const btnRecalcular = document.getElementById("btn-recalcular-stats");
+        if (btnRecalcular) btnRecalcular.onclick = renderizarAbaCaptura;
+
+        const btnLimpar = document.getElementById("btn-limpar-historico");
+        if (btnLimpar) btnLimpar.onclick = limparHistoricoCaptura;
+
+        const btnLimparFiltros = document.getElementById("btn-limpar-filtros");
+        if (btnLimparFiltros) {
+            btnLimparFiltros.onclick = () => {
+                filtrosCaptura.speciesName = "";
+                filtrosCaptura.ballName = "";
+                filtrosCaptura.ballId = "";
+                filtrosCaptura.resultado = "todos";
+                filtrosCaptura.variante = "todos";
+                filtrosCaptura.modo = "todos";
+                filtrosCaptura.minTentativas = 1;
+                filtrosCaptura.maxTentativas = "";
+                filtrosCaptura.minTaxa = "";
+                filtrosCaptura.maxTaxa = "";
+                filtrosCaptura.qualidadeAmostra = "todas";
+                filtrosCaptura.agrupamento = "combinacao";
+                filtrosCaptura.ordenacao = "tentativas_desc";
+                renderizarAbaCaptura();
+            };
+        }
+
+        // Bind dos Filtros
+        const bindInput = (id, prop) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.oninput = (e) => {
+                    filtrosCaptura[prop] = e.target.value;
+                    renderizarAbaCaptura();
+                };
+            }
+        };
+
+        const bindSelect = (id, prop) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.onchange = (e) => {
+                    filtrosCaptura[prop] = e.target.value;
+                    renderizarAbaCaptura();
+                };
+            }
+        };
+
+        bindInput("flt-species", "speciesName");
+        bindInput("flt-ball", "ballName");
+        bindInput("flt-ball-id", "ballId");
+        bindInput("flt-min-tentativas", "minTentativas");
+        bindSelect("flt-resultado", "resultado");
+        bindSelect("flt-variante", "variante");
+        bindSelect("flt-modo", "modo");
+        bindSelect("flt-agrupamento", "agrupamento");
+        bindSelect("flt-ordenacao", "ordenacao");
+
+        // Clique em linha da tabela para abrir modal de detalhes
+        document.querySelectorAll(".catch-table-row").forEach(tr => {
+            tr.onclick = () => {
+                const chave = tr.dataset.chave;
+                if (chave) {
+                    abrirModalDetalhesGrupo(chave);
+                }
+            };
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // PAINEL DE DETALHES DE GRUPO (MODAL / OVERLAY DETALHADO)
+    // -------------------------------------------------------------------------
+    function abrirModalDetalhesGrupo(chave) {
+        const dadosFiltrados = obterDadosFiltrados();
+        const estatisticas = calcularEstatisticasAgrupadas(dadosFiltrados, filtrosCaptura.agrupamento);
+        const grupo = estatisticas.find(g => g.chave === chave);
+
+        if (!grupo) return;
+        grupoDetalheSelecionado = grupo;
+
+        let modalEl = document.getElementById("catch-detail-modal");
+        if (!modalEl) {
+            modalEl = document.createElement("div");
+            modalEl.id = "catch-detail-modal";
+            modalEl.className = "catch-modal-overlay";
+            document.body.appendChild(modalEl);
+        }
+
+        const registrosLogs = grupo.registros.slice(-100).reverse();
+
+        modalEl.innerHTML = `
+            <div class="catch-modal-content">
+                <div class="catch-modal-header">
+                    <h3>🎯 Detalhes: ${escapeHtml(grupo.speciesName)} ${filtrosCaptura.agrupamento === 'combinacao' ? '+ ' + escapeHtml(grupo.ballName) : ''}</h3>
+                    <button id="btn-close-detail-modal" type="button" class="catch-modal-close">×</button>
+                </div>
+                <div class="catch-modal-body">
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px;">
+                        <div class="catch-stat-card"><span class="card-lbl">Tentativas</span><span class="card-val">${formatarNumero(grupo.tentativas)}</span></div>
+                        <div class="catch-stat-card"><span class="card-lbl">Capturas</span><span class="card-val" style="color: #34d399;">${formatarNumero(grupo.capturas)}</span></div>
+                        <div class="catch-stat-card"><span class="card-lbl">Falhas</span><span class="card-val" style="color: #f87171;">${formatarNumero(grupo.falhas)}</span></div>
+                        <div class="catch-stat-card"><span class="card-lbl">Taxa Real %</span><span class="card-val" style="color: #f59e0b;">${grupo.taxa.toFixed(2)}%</span></div>
+                    </div>
+
+                    <div style="font-size: 10px; color: #cbd5e1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px;">
+                        <div>
+                            <div><strong>IC 95% (Wilson):</strong> ${grupo.wilsonCI.lower}% a ${grupo.wilsonCI.upper}%</div>
+                            <div><strong>Maior Seq. Falhas:</strong> ${grupo.maiorSequenciaFalhas}</div>
+                            <div><strong>Seq. Falhas Atual:</strong> ${grupo.sequenciaFalhasAtual}</div>
+                            <div><strong>Média Tentativas/Cap:</strong> ${grupo.mediaTentativasEntreCapturas}</div>
+                            <div><strong>Mediana Tentativas/Cap:</strong> ${grupo.medianaTentativasEntreCapturas}</div>
+                        </div>
+                        <div>
+                            <div><strong>Últimas 25:</strong> ${grupo.taxaUltimas25}</div>
+                            <div><strong>Últimas 50:</strong> ${grupo.taxaUltimas50}</div>
+                            <div><strong>Últimas 100:</strong> ${grupo.taxaUltimas100}</div>
+                            <div><strong>Shinies / Normais:</strong> ✨${grupo.shinyCapturas} / 🔵${grupo.normalCapturas}</div>
+                            <div><strong>Desconhecido Shiny:</strong> ${grupo.desconhecidoShiny}</div>
+                        </div>
+                    </div>
+
+                    <h4 style="font-size: 11px; color: #38bdf8; margin-bottom: 6px;">📜 Histórico Cronológico Recente (Últimos 100 registros)</h4>
+                    <div style="max-height: 220px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
+                        <table class="catch-table" style="font-size: 9.5px;">
+                            <thead>
+                                <tr>
+                                    <th>Horário</th>
+                                    <th>Resultado</th>
+                                    <th>Modo</th>
+                                    <th>Posição</th>
+                                    <th>Shiny</th>
+                                    <th>Species ID</th>
+                                    <th>Max HP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${registrosLogs.map(r => `
+                                    <tr>
+                                        <td>${formatarDataHoraISO(r.timestamp)}</td>
+                                        <td style="color: ${r.success ? '#34d399' : '#f87171'}; font-weight: bold;">${r.success ? 'Sucesso' : 'Falha'}</td>
+                                        <td>${r.auto ? 'Auto' : 'Manual'}</td>
+                                        <td>(${r.row}, ${r.col})</td>
+                                        <td>${r.shiny === true ? '✨ Sim' : (r.shiny === false ? 'Não' : 'Desconhecido')}</td>
+                                        <td>${r.speciesId || '-'}</td>
+                                        <td>${r.maxHp || '-'}</td>
+                                    </tr>
+                                `).join("")}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        modalEl.style.display = "flex";
+
+        const btnClose = modalEl.querySelector("#btn-close-detail-modal");
+        if (btnClose) {
+            btnClose.onclick = () => { modalEl.style.display = "none"; };
+        }
+        modalEl.onclick = (e) => {
+            if (e.target === modalEl) modalEl.style.display = "none";
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // PAINEL DE DIAGNÓSTICO DO SISTEMA
+    // -------------------------------------------------------------------------
+    function abrirModalDiagnostico() {
+        let modalEl = document.getElementById("catch-diag-modal");
+        if (!modalEl) {
+            modalEl = document.createElement("div");
+            modalEl.id = "catch-diag-modal";
+            modalEl.className = "catch-modal-overlay";
+            document.body.appendChild(modalEl);
+        }
+
+        const textoDiag = `
+========================================
+DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
+========================================
+- WebSocket Interceptado: ${wsStats.intercepted ? 'SIM' : 'NÃO'}
+- Sockets Observados: ${wsStats.socketCount}
+- Total Mensagens Recebidas: ${wsStats.receivedMessagesCount}
+- Mensagens catch-result: ${wsStats.catchResultCount}
+- Mensagens field: ${wsStats.fieldCount}
+- Mensagens analyzer: ${wsStats.analyzerCount}
+- Última Mensagem: ${wsStats.lastMessageTime ? new Date(wsStats.lastMessageTime).toLocaleTimeString() : 'Nenhuma'}
+- Último catch-result: ${wsStats.lastCatchResultTime ? new Date(wsStats.lastCatchResultTime).toLocaleTimeString() : 'Nenhum'}
+- Status do Armazenamento: ${dbStatusText}
+- Total Registros Salvos: ${dadosCaptura.length}
+- Total Pokébolas Catalogadas: ${Object.keys(catalogoBolas).length}
+- Último Erro de Parsing: ${wsStats.lastError || 'Nenhum'}
+========================================
+        `.trim();
+
+        modalEl.innerHTML = `
+            <div class="catch-modal-content" style="max-width: 450px;">
+                <div class="catch-modal-header">
+                    <h3>🛠️ Diagnóstico do Sistema</h3>
+                    <button id="btn-close-diag-modal" type="button" class="catch-modal-close">×</button>
+                </div>
+                <div class="catch-modal-body">
+                    <pre style="background: #090d16; color: #38bdf8; font-family: monospace; font-size: 10px; padding: 10px; border-radius: 6px; white-space: pre-wrap; overflow-x: auto;">${escapeHtml(textoDiag)}</pre>
+                    <button id="btn-copiar-diag" type="button" class="catch-btn primary" style="width: 100%; margin-top: 8px;">📋 Copiar Diagnóstico</button>
+                </div>
+            </div>
+        `;
+
+        modalEl.style.display = "flex";
+
+        const btnClose = modalEl.querySelector("#btn-close-diag-modal");
+        if (btnClose) btnClose.onclick = () => { modalEl.style.display = "none"; };
+
+        const btnCopiar = modalEl.querySelector("#btn-copiar-diag");
+        if (btnCopiar) {
+            btnCopiar.onclick = () => {
+                navigator.clipboard.writeText(textoDiag).then(() => alert("Diagnóstico copiado para a área de transferência!"));
+            };
+        }
+        modalEl.onclick = (e) => {
+            if (e.target === modalEl) modalEl.style.display = "none";
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // EXPORTAÇÃO, IMPORTAÇÃO E LIMPEZA
+    // -------------------------------------------------------------------------
+    function exportarJSONCaptura() {
+        if (!dadosCaptura || dadosCaptura.length === 0) {
+            alert("Não há dados de captura salvos para exportar.");
+            return;
+        }
+
+        const pacoteExportacao = {
+            metadata: {
+                extension: "JustPokedex",
+                feature: "CatchAnalyzer",
+                exportDate: new Date().toISOString(),
+                totalRecords: dadosCaptura.length
+            },
+            schemaVersion: 1,
+            settings: {
+                metaAmostraConfig,
+                minTentativasMelhorBola
+            },
+            balls: catalogoBolas,
+            records: dadosCaptura
+        };
+
+        const str = JSON.stringify(pacoteExportacao, null, 2);
+        const blob = new Blob([str], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `justpokedex_catch_analyzer_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function exportarCSVCaptura() {
+        if (!dadosCaptura || dadosCaptura.length === 0) {
+            alert("Não há dados de captura salvos para exportar.");
+            return;
+        }
+
+        const cabecalho = ["timestamp", "date", "speciesName", "ballName", "ballId", "success", "auto", "row", "col", "speciesId", "shiny", "shinySource", "slot", "maxHp"];
+        const linhas = dadosCaptura.map(r => [
+            r.timestamp,
+            `"${formatarDataHoraISO(r.timestamp)}"`,
+            `"${r.speciesName}"`,
+            `"${r.ballName}"`,
+            r.ballId,
+            r.success ? 1 : 0,
+            r.auto ? 1 : 0,
+            r.row,
+            r.col,
+            r.speciesId !== null ? r.speciesId : "",
+            r.shiny === null ? "" : (r.shiny ? 1 : 0),
+            `"${r.shinySource || ""}"`,
+            r.slot !== null ? r.slot : "",
+            r.maxHp !== null ? r.maxHp : ""
+        ].join(","));
+
+        const csvContent = "\uFEFF" + [cabecalho.join(","), ...linhas].join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `justpokedex_catch_analyzer_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function importarJSONCaptura(file) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            try {
+                const parsed = JSON.parse(e.target.result);
+                const listaRegistros = Array.isArray(parsed) ? parsed : (parsed.records || []);
+
+                if (!Array.isArray(listaRegistros)) {
+                    alert("O arquivo fornecido não contém uma lista de registros válida.");
+                    return;
+                }
+
+                let importados = 0;
+                let ignorados = 0;
+                let duplicados = 0;
+
+                listaRegistros.forEach(rec => {
+                    if (rec && rec.speciesName && (rec.ballName !== undefined || rec.ballId !== undefined)) {
+                        const recId = rec.id || `${rec.timestamp || Date.now()}::${rec.speciesName}::${rec.ballId || 0}::${rec.row || 0}::${rec.col || 0}::${Boolean(rec.success)}`;
+
+                        if (dadosCaptura.some(r => r.id === recId)) {
+                            duplicados++;
+                        } else {
+                            const novoRec = {
+                                id: recId,
+                                timestamp: Number(rec.timestamp || Date.now()),
+                                speciesName: String(rec.speciesName),
+                                ballName: String(rec.ballName || MAPA_BALL_ID_NOME[rec.ballId] || "Poké Ball"),
+                                ballId: Number(rec.ballId || 0),
+                                success: Boolean(rec.success),
+                                auto: Boolean(rec.auto),
+                                row: Number(rec.row || 0),
+                                col: Number(rec.col || 0),
+                                speciesId: rec.speciesId !== undefined ? rec.speciesId : null,
+                                shiny: rec.shiny !== undefined ? rec.shiny : null,
+                                shinySource: rec.shinySource || null,
+                                slot: rec.slot !== undefined ? rec.slot : null,
+                                maxHp: rec.maxHp !== undefined ? rec.maxHp : null,
+                                schemaVersion: 1
+                            };
+
+                            dadosCaptura.push(novoRec);
+                            salvarRegistroCatchDB(novoRec);
+                            importados++;
+                        }
+                    } else {
+                        ignorados++;
+                    }
+                });
+
+                if (parsed.balls && typeof parsed.balls === "object") {
+                    Object.assign(catalogoBolas, parsed.balls);
+                    salvarFallbackLocalStorage();
+                }
+
+                renderizarAbaCaptura();
+                alert(`Importação concluída!\n\n- Importados: ${importados}\n- Duplicados ignorados: ${duplicados}\n- Registros inválidos: ${ignorados}`);
+            } catch (err) {
+                alert("Erro ao processar arquivo JSON: " + err.message);
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function limparHistoricoCaptura() {
+        if (!confirm("Tem certeza que deseja apagar TODO o histórico de captura?")) return;
+
+        if (dadosCaptura.length > 1000) {
+            if (!confirm(`ATENÇÃO: Você tem ${dadosCaptura.length} registros salvos. Esta ação é irreversível. Deseja realmente excluir permanentemente?`)) {
+                return;
+            }
+        }
+
+        limparDadosHistoricoDB().then(() => {
+            renderizarAbaCaptura();
+            alert("Histórico de capturas zerado com sucesso.");
+        });
+    }
+
+    function formatarDataHoraISO(ts) {
+        if (!ts) return "-";
+        const d = new Date(ts);
+        return d.toLocaleString("pt-BR", { hour12: false });
+    }
+
+    function atualizarPainelValidacaoAnalyzer() {
+        const el = document.getElementById("catch-analyzer-validation-panel");
+        if (el) {
+            const totalExt = dadosCaptura.length;
+            const capsExt = dadosCaptura.filter(r => r.success).length;
+            const shinyExt = dadosCaptura.filter(r => r.success && r.shiny === true).length;
+            el.innerHTML = renderizarHTMLPainelValidacaoAnalyzer(totalExt, capsExt, shinyExt);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // FUNCIONALIDADES: LOJAS PORTÁTEIS, MERCADO GLOBAL E DEPOT
+    // -------------------------------------------------------------------------
+
+    function sendGameMessage(message) {
+        if (!gameSocket || gameSocket.readyState !== WebSocket.OPEN) return false;
+        gameSocket.send(JSON.stringify(message));
+        return true;
+    }
+
+    function requestGameEvent(type, requestType, cachedValue, timeoutMs = 2500) {
+        if (cachedValue && Array.isArray(cachedValue) && cachedValue.length > 0) return Promise.resolve(cachedValue);
+        return new Promise(resolve => {
+            const waiters = gameEventWaiters.get(type) || [];
+            const waiter = message => resolve(type === "inventory" ? (message.items || message.inventory || []) : (message.list || message.pokes || message.pokemon || []));
+            waiters.push(waiter);
+            gameEventWaiters.set(type, waiters);
+            if (!sendGameMessage({ type: requestType })) {
+                gameEventWaiters.set(type, waiters.filter(item => item !== waiter));
+                resolve([]);
+                return;
+            }
+            setTimeout(() => {
+                const pending = gameEventWaiters.get(type) || [];
+                gameEventWaiters.set(type, pending.filter(item => item !== waiter));
+                resolve(cachedValue || []);
+            }, timeoutMs);
+        });
+    }
+
+    async function readSellableInventoryFromDOM() {
+        const findVisibleInventory = () => Array.from(document.querySelectorAll(".inv-window")).find(windowElement => {
+            const style = getComputedStyle(windowElement);
+            const rect = windowElement.getBoundingClientRect();
+            return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+        }) || null;
+
+        let inventoryWindow = findVisibleInventory();
+        const openedByScript = !inventoryWindow;
+        if (!inventoryWindow) {
+            document.querySelector('[data-guide="dock-inventory"]')?.click();
+            for (let attempt = 0; attempt < 15 && !inventoryWindow; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                inventoryWindow = findVisibleInventory();
+            }
+        }
+        if (!inventoryWindow) return [];
+
+        let catalogById = new Map();
+        try {
+            const payload = await fetch("https://poke.idleworld.online/game/items.json").then(r => r.json());
+            const itemsList = Array.isArray(payload) ? payload : (payload.items || []);
+            itemsList.forEach(item => {
+                if (item && item.id) catalogById.set(String(item.id), item);
+            });
+        } catch (e) { }
+
+        const entries = Array.from(inventoryWindow.querySelectorAll('.inv-slot[data-guide^="inv-item-"]'))
+            .map(slot => {
+                const itemId = slot.dataset.guide.replace("inv-item-", "");
+                const imgEl = slot.querySelector(".inv-ico");
+                const iconSrc = imgEl?.src || imgEl?.dataset?.src || "";
+                const name = imgEl?.alt?.trim() || slot.querySelector(".inv-name")?.textContent?.trim() || "";
+                const qty = parseInt(slot.querySelector(".inv-qty")?.textContent, 10) || 1;
+                const catalogItem = catalogById.get(String(itemId));
+                return {
+                    id: itemId,
+                    itemId,
+                    icon: iconSrc || catalogItem?.icon || catalogItem?.image || `/assets/items/${itemId}.png`,
+                    name: name || catalogItem?.name || `Item ${itemId}`,
+                    qty,
+                    quantity: qty,
+                    category: String(catalogItem?.category || "").toLowerCase(),
+                    npcPrice: catalogItem?.npcPrice ? Number(catalogItem.npcPrice) : 10
+                };
+            })
+            .filter(item => item.itemId && item.qty > 0)
+            .filter(item => !["heal", "revive", "stone"].includes(item.category));
+
+        if (openedByScript) inventoryWindow.querySelector(".cfg-x")?.click();
+        return entries;
+    }
+
+    function showPurchaseConfirm({ name, maxQuantity = 1, unitPrice, currentBalance, currency = "GOLD" }, callback) {
+        document.querySelector(".purchase-confirm-backdrop")?.remove();
+        const icon = currency === "DIAMONDS" ? "💎" : "$";
+        const maxQty = Math.max(1, Number(maxQuantity) || 1);
+        let selectedQty = maxQty;
+
+        const backdrop = document.createElement("div");
+        backdrop.className = "purchase-confirm-backdrop";
+        backdrop.style.cssText = "position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);z-index:9999999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;";
+
+        backdrop.innerHTML = `
+            <div style="background:#0c121d;border:2px solid #f1c644;border-radius:14px;padding:0;color:#e2e8f0;width:380px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.95), 0 0 20px rgba(241,198,68,0.2);overflow:hidden;">
+                <!-- Cabeçalho Pokédex -->
+                <div style="background:linear-gradient(180deg,#e8403d 0%,#b91f27 55%,#8e141c 100%);border-bottom:2px solid #151515;padding:10px 16px;font-size:14px;font-weight:800;color:#ffffff;display:flex;align-items:center;gap:8px;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
+                    <span>♦ CONFIRMAR COMPRA</span>
+                </div>
+                
+                <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+                    <div class="confirm-subtext" style="font-size:13px;color:#e2e8f0;font-weight:700;">
+                        Você vai comprar <b class="confirm-qty-label" style="color:#fcd34d;">${selectedQty}×</b> ${name}.
+                    </div>
+
+                    ${maxQty > 1 ? `
+                        <div style="display:flex;flex-direction:column;gap:6px;background:#141924;border:1px solid #212c3e;border-radius:8px;padding:10px 12px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#94a3b8;font-weight:800;">
+                                <span>Quantidade</span>
+                                <div>
+                                    <input class="confirm-qty-input" type="number" min="1" max="${maxQty}" value="${selectedQty}" style="width:54px;background:#0b0e17;border:1px solid #28374d;border-radius:4px;padding:2px 4px;color:#fff;text-align:center;font-weight:800;font-size:12px;outline:none;">
+                                    <span>/ ${maxQty}</span>
+                                </div>
+                            </div>
+                            <input class="confirm-qty-slider" type="range" min="1" max="${maxQty}" value="${selectedQty}" style="width:100%;accent-color:#e53935;cursor:pointer;margin-top:4px;">
+                            <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;font-weight:700;">
+                                <span>1</span>
+                                <span>${maxQty} (Todos)</span>
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:#141924;border:1px solid #212c3e;border-radius:8px;padding:10px 12px;">
+                        <span style="font-size:13px;color:#94a3b8;font-weight:800;">Total:</span>
+                        <b class="confirm-total-val" style="font-size:15px;color:${currency === 'DIAMONDS' ? '#38bdf8' : '#4ade80'};">${icon} ${(selectedQty * unitPrice).toLocaleString("pt-BR")}</b>
+                    </div>
+
+                    <div class="confirm-balance-box" style="font-size:11px;font-weight:800;padding:6px 10px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;color:#4ade80;">
+                        Saldo: ${icon} ${currentBalance.toLocaleString("pt-BR")}
+                    </div>
+
+                    <div style="display:flex;gap:10px;margin-top:4px;">
+                        <button class="btn-confirm-purchase" type="button" style="flex:1;padding:9px;border:1px solid #ff7961;border-radius:8px;cursor:pointer;font-weight:800;font-size:12px;background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;box-shadow:0 2px 8px rgba(229,57,53,0.4);">✓ Comprar</button>
+                        <button class="btn-cancel-purchase" type="button" style="flex:1;padding:9px;border:1px solid #212c3e;border-radius:8px;cursor:pointer;font-weight:800;font-size:12px;background:#141924;color:#94a3b8;">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+
+        const qtyLabel = backdrop.querySelector(".confirm-qty-label");
+        const qtyInput = backdrop.querySelector(".confirm-qty-input");
+        const qtySlider = backdrop.querySelector(".confirm-qty-slider");
+        const totalVal = backdrop.querySelector(".confirm-total-val");
+        const balanceBox = backdrop.querySelector(".confirm-balance-box");
+        const confirmBtn = backdrop.querySelector(".btn-confirm-purchase");
+
+        function updateModalState(newQty) {
+            selectedQty = Math.max(1, Math.min(maxQty, Number(newQty) || 1));
+            if (qtyLabel) qtyLabel.textContent = `${selectedQty}×`;
+            if (qtyInput) qtyInput.value = selectedQty;
+            if (qtySlider) qtySlider.value = selectedQty;
+
+            const total = selectedQty * unitPrice;
+            if (totalVal) totalVal.textContent = `${icon} ${total.toLocaleString("pt-BR")}`;
+
+            const hasBalance = currentBalance >= total;
+            if (balanceBox) {
+                balanceBox.style.color = hasBalance ? "#4ade80" : "#f87171";
+                balanceBox.textContent = `Saldo: ${icon} ${currentBalance.toLocaleString("pt-BR")} ${hasBalance ? '✓' : '(Saldo Insuficiente)'}`;
+            }
+            if (confirmBtn) {
+                confirmBtn.disabled = !hasBalance;
+                confirmBtn.style.opacity = hasBalance ? "1" : "0.5";
+                confirmBtn.style.cursor = hasBalance ? "pointer" : "not-allowed";
+            }
+        }
+
+        if (qtySlider) qtySlider.addEventListener("input", (e) => updateModalState(e.target.value));
+        if (qtyInput) qtyInput.addEventListener("input", (e) => updateModalState(e.target.value));
+
+        updateModalState(selectedQty);
+
+        backdrop.querySelector(".btn-confirm-purchase").addEventListener("click", () => {
+            backdrop.remove();
+            callback(selectedQty);
+        });
+        backdrop.querySelector(".btn-cancel-purchase").addEventListener("click", () => {
+            backdrop.remove();
+            callback(false);
+        });
+    }
+
+    let itemCatalogMapCache = null;
+    async function getItemCatalogMap() {
+        if (itemCatalogMapCache) return itemCatalogMapCache;
+        itemCatalogMapCache = new Map();
+        try {
+            const payload = await fetch("https://poke.idleworld.online/game/items.json").then(res => res.json()).catch(() => ({ items: [] }));
+            const list = Array.isArray(payload) ? payload : (payload.items || Object.values(payload));
+            list.forEach(item => {
+                if (!item) return;
+                const id = String(item.id ?? item.itemId ?? item.key ?? "").toLowerCase().trim();
+                const name = String(item.name ?? item.title ?? "").toLowerCase().trim();
+                const icon = item.icon || item.image || (item.id ? `https://poke.idleworld.online/assets/items/${item.id}.png` : "");
+                const itemObj = { ...item, id, name, icon };
+                if (id) itemCatalogMapCache.set(id, itemObj);
+                if (name) itemCatalogMapCache.set(name, itemObj);
+            });
+        } catch (e) {
+            console.warn("[JustPokedex] Erro ao carregar items.json:", e);
+        }
+        return itemCatalogMapCache;
+    }
+
+
+
+    function showGlobalMarketWindow() {
+        document.querySelector(".script-market-backdrop")?.remove();
+        const backdrop = document.createElement("div");
+        backdrop.className = "script-market-backdrop";
+        backdrop.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        backdrop.innerHTML = `
+            <div class="mk-window script-market-window" style="background:#0c121d;border:2px solid #f1c644;border-radius:14px;padding:0;color:#e2e8f0;width:1040px;max-width:96vw;height:min(720px, 88vh);box-shadow:0 20px 60px rgba(0,0,0,0.95), 0 0 20px rgba(241,198,68,0.2);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;">
+                <!-- Cabeçalho Oficial JustPokédex -->
+                <div class="mk-head" style="background:linear-gradient(180deg,#e8403d 0%,#b91f27 55%,#8e141c 100%);border-bottom:3px solid #151515;padding:10px 16px;font-size:15px;font-weight:800;color:#ffffff;display:flex;align-items:center;gap:10px;text-shadow:0 1px 2px rgba(0,0,0,0.6);flex:none;">
+                    <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(to bottom,#f34848 0%,#f34848 43%,#151515 43%,#151515 57%,#f7f7f7 57%);border:2px solid #171717;position:relative;flex:none;">
+                        <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:6px;height:6px;border:1.5px solid #171717;border-radius:50%;background:#fff;"></span>
+                    </div>
+                    <span>JustPokédex <span style="font-size:13px;color:#fcd34d;font-weight:700;margin-left:4px;">· Mercado Global Portátil</span></span>
+                    
+                    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+                        <button class="market-refresh" type="button" style="background:#171b23;color:#63b3ed;border:1px solid #273546;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;">↻ Atualizar</button>
+                        <button class="market-close" type="button" style="background:#e53935;color:#fff;border:1px solid #ff7961;border-radius:6px;width:26px;height:26px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+                    </div>
+                </div>
+
+                <!-- Sub-Barra de Saldo & Status -->
+                <div style="background:#141924;border-bottom:1px solid #212c3e;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;flex:none;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:800;color:#4ade80;">
+                            $ Saldo: <span class="market-gold-val">$ ...</span>
+                        </div>
+                        <div style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:800;color:#38bdf8;">
+                            💎 Diamonds: <span class="market-diamonds-val">...</span>
+                        </div>
+                    </div>
+                    <div class="market-status" style="color:#94a3b8;font-size:12px;font-weight:600;">Carregando...</div>
+                </div>
+
+                <!-- Corpo Principal Dividido em Sidebar Esquerda e Painel Direito -->
+                <div style="display:flex;flex:1;overflow:hidden;">
+                    <!-- Sidebar de Categorias na Esquerda -->
+                    <div class="market-sidebar" style="width:185px;background:#0b0f19;border-right:1px solid #1c2637;padding:12px 10px;display:flex;flex-direction:column;justify-content:space-between;gap:12px;flex:none;height:100%;box-sizing:border-box;">
+                        <div style="display:flex;flex-direction:column;gap:10px;">
+                            <div>
+                                <div style="color:#94a3b8;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding-left:4px;">Categorias</div>
+                                <div class="market-category-pills" style="display:flex;flex-direction:column;gap:5px;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Gerenciamento de Anúncios e Histórico na Parte Inferior da Sidebar -->
+                        <div style="border-top:1px solid #1c2637;padding-top:10px;display:flex;flex-direction:column;gap:5px;">
+                            <div style="color:#94a3b8;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;padding-left:4px;">Mercado</div>
+                            <button class="market-view-btn market-view-anunciar" type="button" style="background:#141924;color:#fcd34d;border:1px solid #212c3e;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:100%;">
+                                <span>📢</span> <span>Anunciar</span>
+                            </button>
+                            <button class="market-view-btn market-view-meus" type="button" style="background:#141924;color:#38bdf8;border:1px solid #212c3e;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:100%;">
+                                <span>📑</span> <span>Meus Anúncios</span> <span class="my-listings-badge" style="margin-left:auto;background:#0b0e17;border:1px solid #28374d;border-radius:10px;padding:1px 6px;font-size:10px;color:#94a3b8;">0</span>
+                            </button>
+                            <button class="market-view-btn market-view-historico" type="button" style="background:#141924;color:#a78bfa;border:1px solid #212c3e;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:100%;">
+                                <span>📜</span> <span>Histórico</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Painel de Conteúdo Principal na Direita -->
+                    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:#0c121d;">
+                        <!-- Barra de Busca e Ordenação Superior -->
+                        <div class="market-top-controls" style="background:#0c121d;border-bottom:1px solid #1c2637;padding:10px 16px;display:flex;flex-direction:column;gap:8px;flex:none;">
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                <div style="display:flex;align-items:center;gap:6px;flex:1;">
+                                    <input class="market-search" type="search" placeholder="Buscar anúncio..." style="flex:1;min-width:180px;background:#141924;color:#fff;border:1px solid #212c3e;border-radius:6px;padding:6px 10px;font-size:12px;outline:none;font-weight:700;">
+                                    <button class="market-fav-search-btn" type="button" title="Favoritar este termo de busca" style="background:#141924;border:1px solid #212c3e;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer;color:#94a3b8;flex:none;">⭐</button>
+                                </div>
+
+                                <select class="market-sort" style="background:#141924;color:#f8fafc;border:1px solid #212c3e;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:800;outline:none;">
+                                    <option value="recent">Mais recentes</option>
+                                    <option value="price-asc">Menor preço</option>
+                                    <option value="price-desc">Maior preço</option>
+                                    <option value="iv-desc">Maior IV</option>
+                                    <option value="quality-desc">Maior qualidade</option>
+                                    <option value="level-desc">Maior nível</option>
+                                    <option value="power-desc">Maior poder</option>
+                                </select>
+                            </div>
+
+                            <!-- Faixa de Atalhos de Busca Favoritados -->
+                            <div class="market-fav-pills-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:2px;"></div>
+
+                            <!-- Filtros Avançados de Pokémon -->
+                            <div class="market-pokemon-filters" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;padding-top:6px;border-top:1px solid #1a2433;">
+                                <label style="display:flex;align-items:center;gap:5px;color:#fcd34d;font-size:11px;font-weight:800;cursor:pointer;">
+                                    <input class="market-shiny-only" type="checkbox" style="accent-color:#e53935;cursor:pointer;">
+                                    Somente Shiny ✨
+                                </label>
+                                <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#f1c644;font-weight:800;">
+                                    <span>IV:</span>
+                                    <input class="market-iv-min" type="number" min="0" max="192" placeholder="de" style="width:48px;background:#0b0e17;border:1px solid #28374d;border-radius:4px;padding:3px;color:#fff;text-align:center;font-weight:700;">
+                                    <span style="color:#94a3b8;">-</span>
+                                    <input class="market-iv-max" type="number" min="0" max="192" placeholder="até" style="width:48px;background:#0b0e17;border:1px solid #28374d;border-radius:4px;padding:3px;color:#fff;text-align:center;font-weight:700;">
+                                </div>
+                                <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;font-weight:700;">
+                                    <span>Nv:</span>
+                                    <input class="market-level-min" type="number" min="1" placeholder="de" style="width:48px;background:#0b0e17;border:1px solid #28374d;border-radius:4px;padding:3px;color:#fff;text-align:center;font-weight:700;">
+                                    <span style="color:#94a3b8;">-</span>
+                                    <input class="market-level-max" type="number" min="1" placeholder="até" style="width:48px;background:#0b0e17;border:1px solid #28374d;border-radius:4px;padding:3px;color:#fff;text-align:center;font-weight:700;">
+                                </div>
+                                <label style="display:flex;align-items:center;gap:5px;color:#94a3b8;font-size:11px;font-weight:700;margin-left:auto;cursor:pointer;">
+                                    <input class="market-show-offers" type="checkbox" checked style="accent-color:#e53935;cursor:pointer;">
+                                    Mostrar ofertas
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Lista Grid de Anúncios Rolável -->
+                        <div class="market-list" style="padding:12px 16px;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));gap:10px;flex:1;background:#0c121d;">
+                            <div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando Mercado Global...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(backdrop);
+
+        const MARKET_CATEGORIES = [
+            { id: "All", label: "🌐 Todos" },
+            { id: "Items", label: "🧪 Itens" },
+            { id: "Stones", label: "🍃 Stones" },
+            { id: "Poke Balls", label: "🔴 Poké Balls" },
+            { id: "Diamonds", label: "💎 Diamonds" },
+            { id: "Pokemon", label: "🐉 Pokémon" }
+        ];
+
+        let activeMode = "browse"; // "browse", "anunciar", "meus", "historico"
+        let activeCategory = "Items";
+        let currentListings = [];
+        let renderLimit = 100;
+
+        const list = backdrop.querySelector(".market-list");
+        const status = backdrop.querySelector(".market-status");
+        const search = backdrop.querySelector(".market-search");
+        const sortSelect = backdrop.querySelector(".market-sort");
+        const showOffers = backdrop.querySelector(".market-show-offers");
+        const pokemonFilters = backdrop.querySelector(".market-pokemon-filters");
+        const topControls = backdrop.querySelector(".market-top-controls");
+        const shinyOnly = backdrop.querySelector(".market-shiny-only");
+        const ivMin = backdrop.querySelector(".market-iv-min");
+        const ivMax = backdrop.querySelector(".market-iv-max");
+        const levelMin = backdrop.querySelector(".market-level-min");
+        const levelMax = backdrop.querySelector(".market-level-max");
+        const categoryPillsEl = backdrop.querySelector(".market-category-pills");
+        const btnAnunciar = backdrop.querySelector(".market-view-anunciar");
+        const btnMeus = backdrop.querySelector(".market-view-meus");
+        const btnHistorico = backdrop.querySelector(".market-view-historico");
+        const close = () => backdrop.remove();
+
+        // Atualiza Saldos de Gold e Diamonds
+        async function updateCharacterBalance() {
+            try {
+                const charData = await gameApiRequest("/api/characters/me").catch(() => null);
+                if (charData?.character) {
+                    const g = Number(charData.character.gold || 0);
+                    const d = Number(charData.character.diamonds || 0);
+                    backdrop.querySelector(".market-gold-val").textContent = `$ ${g.toLocaleString("pt-BR")}`;
+                    backdrop.querySelector(".market-diamonds-val").textContent = d.toLocaleString("pt-BR");
+                }
+            } catch (e) { }
+        }
+        updateCharacterBalance();
+
+        function updateSidebarActionStyles() {
+            [btnAnunciar, btnMeus, btnHistorico].forEach(b => {
+                b.style.borderColor = "#212c3e";
+                b.style.background = "#141924";
+            });
+
+            if (activeMode === "anunciar") {
+                btnAnunciar.style.borderColor = "#fcd34d";
+                btnAnunciar.style.background = "linear-gradient(180deg,#332a15 0%,#1c180e 100%)";
+            } else if (activeMode === "meus") {
+                btnMeus.style.borderColor = "#38bdf8";
+                btnMeus.style.background = "linear-gradient(180deg,#0f2b38 0%,#091720 100%)";
+            } else if (activeMode === "historico") {
+                btnHistorico.style.borderColor = "#a78bfa";
+                btnHistorico.style.background = "linear-gradient(180deg,#241c38 0%,#140f20 100%)";
+            }
+        }
+
+        btnAnunciar.addEventListener("click", () => {
+            activeMode = "anunciar";
+            updateSidebarActionStyles();
+            renderCategoryPills();
+            topControls.style.display = "none";
+            loadAnnounceView();
+        });
+
+        btnMeus.addEventListener("click", () => {
+            activeMode = "meus";
+            updateSidebarActionStyles();
+            renderCategoryPills();
+            topControls.style.display = "none";
+            loadMyListings();
+        });
+
+        btnHistorico.addEventListener("click", () => {
+            activeMode = "historico";
+            updateSidebarActionStyles();
+            renderCategoryPills();
+            topControls.style.display = "none";
+            loadMarketHistory();
+        });
+
+        function renderCategoryPills() {
+            if (!categoryPillsEl) return;
+            categoryPillsEl.innerHTML = "";
+            MARKET_CATEGORIES.forEach(cat => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                const isSelected = activeMode === "browse" && activeCategory === cat.id;
+                btn.style.cssText = isSelected ?
+                    "background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);display:flex;align-items:center;gap:8px;text-align:left;width:100%;" :
+                    "background:#141924;color:#94a3b8;border:1px solid #212c3e;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:8px;text-align:left;width:100%;";
+                btn.textContent = cat.label;
+
+                btn.addEventListener("click", () => {
+                    activeMode = "browse";
+                    activeCategory = cat.id;
+                    updateSidebarActionStyles();
+                    renderCategoryPills();
+                    topControls.style.display = "flex";
+                    renderLimit = 100;
+                    load();
+                });
+                categoryPillsEl.appendChild(btn);
+            });
+        }
+        renderCategoryPills();
+
+        function getMarketEntryIcon(entry) {
+            const ref = entry.item || entry.pokemon || entry.product || {};
+            const kind = String(entry.kind || entry.type || "").toLowerCase();
+
+            if (kind === "pokemon" || entry.speciesId || entry.pokemonId || entry.pokemonName || entry.ivTotal != null || activeCategory === "Pokemon") {
+                const speciesId = entry.speciesId || entry.pokeId || entry.pokemonId || ref.speciesId || ref.id;
+                const shiny = Boolean(entry.shiny || ref.shiny);
+                if (speciesId && typeof obterUrlsSprite === "function") {
+                    const urls = obterUrlsSprite(speciesId, shiny);
+                    return {
+                        anim: urls?.anim || "",
+                        still: urls?.still || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${speciesId}.png`,
+                        isPoke: true
+                    };
+                }
+            }
+
+            let iconUrl = entry.iconUrl || entry.icon || entry.image || ref.iconUrl || ref.icon || ref.image || "";
+            const itemId = entry.refId || entry.itemId || entry.id || ref.itemId || ref.id;
+
+            if (!iconUrl && itemId) {
+                iconUrl = `/assets/items/${itemId}.png`;
+            }
+            if (!iconUrl) {
+                iconUrl = "/assets/markitems/pokeball.png";
+            }
+
+            return {
+                anim: iconUrl,
+                still: "/assets/markitems/pokeball.png",
+                isPoke: false
+            };
+        }
+
+        const favSearchBtn = backdrop.querySelector(".market-fav-search-btn");
+
+        function getMarketFavorites() {
+            try {
+                const stored = localStorage.getItem("justpokedex_market_favorites");
+                return stored ? JSON.parse(stored) : ["Strange Pheromone", "Bronze Boss Token"];
+            } catch (e) {
+                return ["Strange Pheromone", "Bronze Boss Token"];
+            }
+        }
+
+        function saveMarketFavorites(favs) {
+            try {
+                localStorage.setItem("justpokedex_market_favorites", JSON.stringify(favs));
+            } catch (e) { }
+        }
+
+        function toggleMarketFavorite(name) {
+            if (!name || typeof name !== "string") return;
+            const cleanName = name.trim();
+            if (!cleanName) return;
+            let favs = getMarketFavorites();
+            const idx = favs.findIndex(f => f.toLowerCase() === cleanName.toLowerCase());
+            if (idx >= 0) {
+                favs.splice(idx, 1);
+            } else {
+                favs.push(cleanName);
+            }
+            saveMarketFavorites(favs);
+        }
+
+        function renderFavoritePills() {
+            const bar = backdrop.querySelector(".market-fav-pills-bar");
+            if (!bar) return;
+            bar.innerHTML = "";
+            const favs = getMarketFavorites();
+            if (favs.length === 0) {
+                bar.style.display = "none";
+                return;
+            }
+            bar.style.display = "flex";
+
+            const label = document.createElement("span");
+            label.style.cssText = "font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-right:2px;";
+            label.textContent = "⭐ Favoritos:";
+            bar.appendChild(label);
+
+            favs.forEach(favName => {
+                const pill = document.createElement("div");
+                const isActive = search.value.trim().toLowerCase() === favName.toLowerCase();
+                pill.style.cssText = `display:flex;align-items:center;gap:5px;background:${isActive ? '#332a15' : '#141924'};border:1px solid ${isActive ? '#fcd34d' : '#212c3e'};border-radius:12px;padding:2px 8px;font-size:11px;font-weight:800;color:${isActive ? '#fcd34d' : '#e2e8f0'};cursor:pointer;`;
+
+                pill.innerHTML = `
+                    <span>${favName}</span>
+                    <span class="remove-fav-btn" title="Remover dos favoritos" style="color:#94a3b8;font-size:10px;margin-left:2px;cursor:pointer;">✕</span>
+                `;
+
+                pill.addEventListener("click", (e) => {
+                    if (e.target.classList.contains("remove-fav-btn")) {
+                        e.stopPropagation();
+                        toggleMarketFavorite(favName);
+                        renderFavoritePills();
+                        render();
+                        return;
+                    }
+                    if (search.value.trim().toLowerCase() === favName.toLowerCase()) {
+                        search.value = "";
+                    } else {
+                        search.value = favName;
+                    }
+                    renderFavoritePills();
+                    renderLimit = 100;
+                    render();
+                });
+
+                bar.appendChild(pill);
+            });
+        }
+        renderFavoritePills();
+
+        if (favSearchBtn) {
+            favSearchBtn.addEventListener("click", () => {
+                const query = search.value.trim();
+                if (!query) {
+                    alert("Digite um nome na caixa de busca para favoritar!");
+                    return;
+                }
+                toggleMarketFavorite(query);
+                renderFavoritePills();
+                render();
+            });
+        }
+
+        const render = () => {
+            const query = search.value.trim().toLowerCase();
+            let filtered = currentListings.filter(entry => {
+                const ref = entry.item || entry.pokemon || entry.product || {};
+                const name = entry.name || entry.title || entry.itemName || entry.pokemonName || ref.name || ref.title || "";
+                if (query && !String(name).toLowerCase().includes(query)) return false;
+                if (!showOffers.checked && (entry.offerOnly || Number(entry.price) <= 0)) return false;
+                if (activeCategory === "Pokemon") {
+                    const iv = Number(entry.ivTotal ?? -1);
+                    const level = Number(entry.level ?? -1);
+                    if (shinyOnly.checked && !entry.shiny) return false;
+                    if (ivMin.value !== "" && iv < Number(ivMin.value)) return false;
+                    if (ivMax.value !== "" && iv > Number(ivMax.value)) return false;
+                    if (levelMin.value !== "" && level < Number(levelMin.value)) return false;
+                    if (levelMax.value !== "" && level > Number(levelMax.value)) return false;
+                }
+                return true;
+            });
+
+            const sorters = {
+                "price-asc": (a, b) => Number(a.price) - Number(b.price),
+                "price-desc": (a, b) => Number(b.price) - Number(a.price),
+                "iv-desc": (a, b) => Number(b.ivTotal ?? -1) - Number(a.ivTotal ?? -1),
+                "power-desc": (a, b) => Number(b.power ?? -1) - Number(a.power ?? -1),
+                "level-desc": (a, b) => Number(b.level ?? -1) - Number(a.level ?? -1),
+                "quality-desc": (a, b) => Number(b.quality ?? -1) - Number(a.quality ?? -1)
+            };
+            if (sorters[sortSelect.value]) filtered = [...filtered].sort(sorters[sortSelect.value]);
+            const visible = filtered.slice(0, renderLimit);
+            list.innerHTML = "";
+
+            status.textContent = filtered.length
+                ? `Exibindo ${visible.length.toLocaleString("pt-BR")} de ${filtered.length.toLocaleString("pt-BR")} anúncios`
+                : "Nenhum anúncio encontrado.";
+
+            if (visible.length === 0) {
+                list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Nenhum anúncio encontrado nesta categoria.</div>`;
+                return;
+            }
+
+            const favList = getMarketFavorites().map(f => f.toLowerCase());
+
+            visible.forEach(entry => {
+                const ref = entry.item || entry.pokemon || entry.product || {};
+                const name = entry.name || entry.title || entry.itemName || entry.pokemonName || ref.name || ref.title || "Item";
+                const price = Number(entry.price ?? entry.totalPrice ?? entry.value ?? 0);
+                const quantity = Number(entry.quantity ?? entry.qty ?? entry.amount ?? entry.count ?? entry.totalQty ?? entry.stock ?? (Array.isArray(entry.ids) ? entry.ids.length : 1));
+                const offerOnly = Boolean(entry.offerOnly || price <= 0);
+                const currency = String(entry.currency || "GOLD").toUpperCase();
+                const iconData = getMarketEntryIcon(entry);
+                const isFav = favList.includes(name.toLowerCase());
+                const starColor = isFav ? "#fcd34d" : "#475569";
+
+                const row = document.createElement("div");
+                row.style.cssText = "display:flex;flex-direction:column;justify-content:space-between;background:#141924;border:1px solid #212c3e;border-radius:10px;padding:10px 12px;gap:8px;position:relative;";
+
+                let priceDisplay = "";
+                if (offerOnly) {
+                    priceDisplay = `<span style="color:#94a3b8;font-size:11px;font-weight:800;">Somente oferta</span>`;
+                } else {
+                    const isDiamond = currency === "DIAMONDS";
+                    const color = isDiamond ? "#38bdf8" : "#4ade80";
+                    const symbol = isDiamond ? "💎" : "$";
+                    priceDisplay = `<span style="color:${color};font-weight:800;font-size:13px;">${symbol} ${price.toLocaleString("pt-BR")}</span>`;
+                }
+
+                if (iconData.isPoke || entry.kind === "pokemon" || activeCategory === "Pokemon") {
+                    const level = entry.level || ref.level || 1;
+                    const ivTotal = entry.ivTotal ?? ref.ivTotal ?? entry.iv ?? ref.iv ?? "-";
+                    const qualNum = Number(entry.quality ?? ref.quality ?? entry.multiplier ?? 0);
+
+                    let rarityName = "";
+                    let rarityColor = "#4ade80";
+                    if (qualNum > 0 && typeof obterEtiquetaQualidade === "function") {
+                        const et = obterEtiquetaQualidade(qualNum);
+                        rarityName = `${et.label} ×${qualNum.toFixed(2)}`;
+                        rarityColor = et.color;
+                    } else if (entry.rarity || ref.rarity) {
+                        rarityName = String(entry.rarity || ref.rarity);
+                    }
+
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#0b0e17;border:1px solid #1c2637;border-radius:8px;flex:none;">
+                                <img src="${iconData.anim}" data-fallback="${iconData.still}" style="width:36px;height:36px;object-fit:contain;" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback='';}">
+                            </div>
+                            <div style="overflow:hidden;flex:1;">
+                                <div style="color:#f8fafc;font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px;">
+                                    <span style="overflow:hidden;text-overflow:ellipsis;">${name}</span> ${entry.shiny || ref.shiny ? '<span style="color:#fcd34d;font-size:11px;">✨</span>' : ''}
+                                    <span class="card-fav-star" title="Favoritar/Desfavoritar" style="color:${starColor};cursor:pointer;font-size:12px;margin-left:auto;">⭐</span>
+                                </div>
+                                <div style="color:#94a3b8;font-size:11px;margin-top:2px;">
+                                    Nv ${level} ${rarityName ? `· <span style="color:${rarityColor};font-weight:800;">${rarityName}</span>` : ''} · IV ${ivTotal}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #1c2637;padding-top:8px;margin-top:2px;">
+                            ${priceDisplay}
+                            <button class="market-buy-btn" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);" ${offerOnly ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>Comprar</button>
+                        </div>`;
+                } else {
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#0b0e17;border:1px solid #1c2637;border-radius:8px;flex:none;">
+                                <img src="${iconData.anim}" style="width:32px;height:32px;object-fit:contain;" onerror="this.src='/assets/markitems/pokeball.png'">
+                            </div>
+                            <div style="overflow:hidden;flex:1;">
+                                <div style="color:#f8fafc;font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px;">
+                                    <span style="overflow:hidden;text-overflow:ellipsis;">${name}</span>
+                                    <span class="card-fav-star" title="Favoritar/Desfavoritar" style="color:${starColor};cursor:pointer;font-size:12px;margin-left:auto;">⭐</span>
+                                </div>
+                                <div style="color:#94a3b8;font-size:11px;margin-top:2px;">
+                                    Qtd: <b style="color:#fff;">${quantity.toLocaleString("pt-BR")}</b>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #1c2637;padding-top:8px;margin-top:2px;">
+                            ${priceDisplay}
+                            <button class="market-buy-btn" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);" ${offerOnly ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>Comprar</button>
+                        </div>`;
+                }
+
+                const starBtn = row.querySelector(".card-fav-star");
+                if (starBtn) {
+                    starBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        toggleMarketFavorite(name);
+                        renderFavoritePills();
+                        render();
+                    });
+                }
+
+                const buyBtn = row.querySelector(".market-buy-btn");
+                if (buyBtn && !offerOnly) {
+                    buyBtn.addEventListener("click", async () => {
+                        buyBtn.disabled = true;
+                        try {
+                            const characterData = await gameApiRequest("/api/characters/me").catch(() => ({ character: { gold: 0, diamonds: 0 } }));
+                            const currentBalance = currency === "DIAMONDS"
+                                ? Number(characterData.character?.diamonds || 0)
+                                : Number(characterData.character?.gold || 0);
+
+                            showPurchaseConfirm({
+                                name,
+                                maxQuantity: quantity,
+                                unitPrice: price,
+                                currentBalance,
+                                currency
+                            }, async (selectedQty) => {
+                                if (!selectedQty) {
+                                    buyBtn.disabled = false;
+                                    return;
+                                }
+                                try {
+                                    const marketAction = entry.kind === "pokemon"
+                                        ? { action: "buy", id: entry.id, quantity: selectedQty }
+                                        : {
+                                            action: "buy-stack",
+                                            kind: entry.kind,
+                                            refId: entry.refId,
+                                            price: entry.price,
+                                            currency: entry.currency,
+                                            quantity: selectedQty,
+                                            ids: entry.ids ?? [entry.id]
+                                        };
+                                    sendGameMessage({ type: "market-buy", id: entry.id, refId: entry.refId, quantity: selectedQty });
+                                    sendGameMessage({ type: "buy-stack", refId: entry.refId, quantity: selectedQty });
+
+                                    await gameApiRequest("/api/game/market/action", {
+                                        method: "POST",
+                                        body: JSON.stringify(marketAction)
+                                    }).catch(() => null);
+
+                                    alert("Compra concluída com sucesso!");
+                                    updateCharacterBalance();
+                                    load();
+                                } catch (err) {
+                                    alert("Erro ao concluir a compra: " + err.message);
+                                    buyBtn.disabled = false;
+                                }
+                            });
+                        } catch (err) {
+                            alert("Erro ao validar saldo: " + err.message);
+                            buyBtn.disabled = false;
+                        }
+                    });
+                }
+
+                list.appendChild(row);
+            });
+        };
+
+        function findGameMarketWindow() {
+            return document.querySelector("div.win-window.mkt2-window, .mkt2-window, [class*='mkt2-window']") 
+                || document.querySelector("nav.mkt2-tabs, nav[class*='mkt2-tabs']")?.closest("div[class*='window'], div[class*='win'], div");
+        }
+
+        async function ensureGameMarketTab(tabName) {
+            console.log(`[JustPokedex Market] Solicitando aba do jogo: ${tabName}`);
+            let win = findGameMarketWindow();
+            if (!win) {
+                console.log("[JustPokedex Market] Janela do mercado não encontrada, tentando abrir via botão CTA...");
+                const cta = document.querySelector(".market-cta, [class*='market-cta'], [data-guide='dock-market'], [aria-label*='Mercado']");
+                if (cta) cta.click();
+                else sendGameMessage({ type: "market-open" });
+
+                for (let i = 0; i < 25; i++) {
+                    await new Promise(r => setTimeout(r, 100));
+                    win = findGameMarketWindow();
+                    if (win) break;
+                }
+            }
+            if (!win) {
+                console.warn("[JustPokedex Market] Não foi possível encontrar a janela de mercado no DOM.");
+                return null;
+            }
+
+            const tabsNav = win.querySelector("nav.mkt2-tabs, [class*='mkt2-tabs']") || document.querySelector("nav.mkt2-tabs, [class*='mkt2-tabs']");
+            if (tabsNav) {
+                const tabButtons = Array.from(tabsNav.querySelectorAll("button, .mkt2-tab, [class*='mkt2-tab']"));
+                console.log("[JustPokedex Market] Abas no nav oficial do jogo:", tabButtons.map(t => t.innerText.trim()));
+                const targetTab = tabButtons.find(t => t.innerText.toLowerCase().includes(tabName.toLowerCase()));
+                if (targetTab) {
+                    console.log(`[JustPokedex Market] Clicando na aba nativa: "${targetTab.innerText.trim()}"`);
+                    targetTab.click();
+                } else {
+                    console.warn(`[JustPokedex Market] Aba "${tabName}" não foi encontrada no nav do jogo.`);
+                }
+            }
+            return win;
+        }
+
+        async function waitForGameMarketBody(win, timeoutMs = 3000) {
+            const startTime = Date.now();
+            while (Date.now() - startTime < timeoutMs) {
+                const tabsNav = document.querySelector("nav.mkt2-tabs, nav[class*='mkt2-tabs']");
+                const body = document.querySelector(".mkt2-body, [class*='mkt2-body']") || tabsNav?.nextElementSibling || win?.querySelector(".mkt2-body");
+                if (body) {
+                    const text = body.innerText.trim();
+                    if (text && !text.toLowerCase().includes("carregando") && text.length > 3) {
+                        console.log("[JustPokedex Market] Corpo do mercado carregado no DOM.");
+                        return body;
+                    }
+                }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            console.log("[JustPokedex Market] Tempo limite de carregamento atingido, lendo estado atual.");
+            const tabsNav = document.querySelector("nav.mkt2-tabs, nav[class*='mkt2-tabs']");
+            return document.querySelector(".mkt2-body, [class*='mkt2-body']") || tabsNav?.nextElementSibling;
+        }
+
+        function extractListingsFromMarketBody(body) {
+            if (!body) return [];
+            const allElements = Array.from(body.querySelectorAll("*"));
+            const seenKeys = new Set();
+            const items = [];
+
+            allElements.forEach(el => {
+                const text = (el.innerText || "").trim();
+                if (text.includes("seu anúncio") && (text.includes("Cancelar") || text.includes("/un"))) {
+                    const childMatches = Array.from(el.querySelectorAll("*")).filter(c => c.innerText && c.innerText.includes("seu anúncio") && (c.innerText.includes("Cancelar") || c.innerText.includes("/un")));
+                    if (childMatches.length > 0) return;
+
+                    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+                    if (lines.length < 2) return;
+
+                    const name = lines[0] && !lines[0].includes("MEUS ANÚNCIOS") && !lines[0].includes("Cards") ? lines[0] : (lines[1] || "Item");
+                    const qtyMatch = text.match(/([\d.]+)\s*(?:×|x)/i) || text.match(/Qtd:\s*([\d.]+)/i);
+                    const quantity = qtyMatch ? Number(qtyMatch[1].replace(/\./g, "")) : 1;
+
+                    const priceMatch = text.match(/([\d.]+)\s*\/\s*un/i) || text.match(/([\d.]+)/);
+                    const price = priceMatch ? Number(priceMatch[1].replace(/\./g, "")) : 0;
+                    const isDiamond = text.toLowerCase().includes("diamond") || Boolean(el.querySelector("img[src*='diamond']"));
+
+                    const imgEl = el.querySelector("img") || el.parentElement?.querySelector("img");
+                    const iconUrl = imgEl ? imgEl.src : "";
+                    const origCancelBtn = Array.from(el.querySelectorAll("button, a, div")).find(b => b.innerText && b.innerText.trim() === "Cancelar")
+                        || (el.innerText.includes("Cancelar") ? el : null);
+
+                    const uniqueKey = `${name}_${price}_${quantity}`;
+                    if (!seenKeys.has(uniqueKey)) {
+                        seenKeys.add(uniqueKey);
+                        items.push({
+                            name,
+                            price,
+                            quantity,
+                            currency: isDiamond ? "DIAMONDS" : "GOLD",
+                            iconUrl,
+                            origCancelBtn
+                        });
+                    }
+                }
+            });
+
+            return items;
+        }
+
+        function extractHistoryFromMarketBody(body) {
+            if (!body) return [];
+            const allElements = Array.from(body.querySelectorAll("*"));
+            const seenKeys = new Set();
+            const items = [];
+
+            allElements.forEach(el => {
+                const text = (el.innerText || "").trim();
+                if ((text.includes("Comprou") || text.includes("Vendeu")) && text.includes("/un")) {
+                    const childMatches = Array.from(el.querySelectorAll("*")).filter(c => (c.innerText.includes("Comprou") || c.innerText.includes("Vendeu")) && c.innerText.includes("/un"));
+                    if (childMatches.length > 0) return;
+
+                    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+                    if (lines.length < 2) return;
+
+                    const firstLine = lines[0];
+                    const isBuy = firstLine.includes("Comprou") || firstLine.includes("Bought");
+                    const qtyMatch = firstLine.match(/([\d.]+)\s*(?:×|x)/i);
+                    const qty = qtyMatch ? Number(qtyMatch[1].replace(/\./g, "")) : 1;
+
+                    let name = firstLine.replace(/^(?:🛒|💰|Vendeu|Comprou|Sold|Bought)\s*[\d.]+(?:×|x)?\s*/i, "").trim();
+                    if (!name) name = "Item";
+
+                    const priceMatch = text.match(/([\d.]+)\s*\/\s*un/i) || text.match(/([\d.]+)/);
+                    const price = priceMatch ? Number(priceMatch[1].replace(/\./g, "")) : 0;
+                    const isDiamond = text.toLowerCase().includes("diamond") || Boolean(el.querySelector("img[src*='diamond']"));
+
+                    const dateMatch = text.match(/\d{2}\/\d{2}\/\d{4}[,\s]*\d{2}:\d{2}:\d{2}/) || text.match(/\d{2}:\d{2}:\d{2}/);
+                    const dateStr = dateMatch ? dateMatch[0] : (lines[1] || "Recente");
+
+                    const uniqueKey = `${name}_${price}_${qty}_${dateStr}`;
+                    if (!seenKeys.has(uniqueKey)) {
+                        seenKeys.add(uniqueKey);
+                        items.push({
+                            name,
+                            price,
+                            quantity: qty,
+                            isBuy,
+                            currency: isDiamond ? "DIAMONDS" : "GOLD",
+                            dateStr
+                        });
+                    }
+                }
+            });
+
+            return items;
+        }
+
+        const loadMyListings = async () => {
+            status.textContent = "Carregando meus anúncios...";
+            list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando meus anúncios...</div>`;
+            try {
+                let myListings = [];
+
+                if (Array.isArray(latestMyListingsData) && latestMyListingsData.length > 0) {
+                    myListings = latestMyListingsData;
+                }
+
+                if (myListings.length === 0) {
+                    let payload = await gameApiRequest("/api/game/market?category=Items").catch(() => null);
+                    if (payload?.mine) {
+                        myListings = payload.mine;
+                        latestMyListingsData = payload.mine;
+                        if (payload.history) latestHistoryData = payload.history;
+                    }
+                }
+
+                if (myListings.length === 0) {
+                    const win = await ensureGameMarketTab("Meus Anúncios").catch(() => null);
+                    const body = await waitForGameMarketBody(win, 1500).catch(() => null);
+                    if (body) {
+                        myListings = extractListingsFromMarketBody(body);
+                    }
+                }
+
+                const badgeEl = backdrop.querySelector(".my-listings-badge");
+                if (badgeEl) badgeEl.textContent = myListings.length;
+
+                status.textContent = `Você possui ${myListings.length} anúncio(s) ativo(s).`;
+
+                if (myListings.length === 0) {
+                    list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:32px;grid-column:1/-1;font-size:13px;">Você não possui nenhum anúncio ativo no momento.</div>`;
+                    return;
+                }
+
+                list.innerHTML = "";
+                myListings.forEach(entry => {
+                    const ref = entry.item || entry.pokemon || entry.product || {};
+                    const name = entry.name || entry.title || entry.itemName || entry.pokemonName || ref.name || ref.title || "Item";
+                    const price = Number(entry.price ?? entry.totalPrice ?? entry.value ?? 0);
+                    const quantity = Number(entry.quantity ?? entry.qty ?? entry.amount ?? entry.count ?? 1);
+                    const currency = String(entry.currency || "GOLD").toUpperCase();
+                    const iconData = getMarketEntryIcon(entry);
+                    const isDiamond = currency === "DIAMONDS";
+                    const symbol = isDiamond ? "💎" : "$";
+                    const color = isDiamond ? "#38bdf8" : "#4ade80";
+                    const iconSrc = entry.iconUrl || iconData.anim;
+
+                    const row = document.createElement("div");
+                    row.style.cssText = "display:flex;flex-direction:column;justify-content:space-between;background:#141924;border:1px solid #212c3e;border-radius:10px;padding:10px 12px;gap:8px;position:relative;";
+
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#0b0e17;border:1px solid #1c2637;border-radius:8px;flex:none;">
+                                <img src="${iconSrc}" style="width:32px;height:32px;object-fit:contain;" onerror="this.src='/assets/markitems/pokeball.png'">
+                            </div>
+                            <div style="overflow:hidden;">
+                                <div style="color:#f8fafc;font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                    ${name}
+                                </div>
+                                <div style="color:#94a3b8;font-size:11px;margin-top:2px;">
+                                    Qtd: <b style="color:#fff;">${quantity.toLocaleString("pt-BR")}</b>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #1c2637;padding-top:8px;margin-top:2px;">
+                            <span style="color:${color};font-weight:800;font-size:13px;">${symbol} ${price.toLocaleString("pt-BR")}</span>
+                            <button class="market-cancel-btn" style="background:#e53935;color:#fff;border:1px solid #ff7961;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:800;cursor:pointer;">Cancelar</button>
+                        </div>`;
+
+                    const cancelBtn = row.querySelector(".market-cancel-btn");
+                    cancelBtn.addEventListener("click", async () => {
+                        if (!confirm(`Deseja cancelar o anúncio de ${name}?`)) return;
+                        cancelBtn.disabled = true;
+                        cancelBtn.textContent = "Cancelando...";
+                        try {
+                            if (entry.origCancelBtn) {
+                                entry.origCancelBtn.click();
+                            } else {
+                                const marketAction = entry.kind === "pokemon"
+                                    ? { action: "cancel", id: entry.id }
+                                    : { action: "cancel-stack", refId: entry.refId, id: entry.id };
+                                sendGameMessage({ type: "market-cancel", id: entry.id, refId: entry.refId });
+                                await gameApiRequest("/api/game/market/action", {
+                                    method: "POST",
+                                    body: JSON.stringify(marketAction)
+                                }).catch(() => null);
+                            }
+                            alert("Anúncio cancelado com sucesso!");
+                            loadMyListings();
+                        } catch (err) {
+                            alert("Erro ao cancelar anúncio: " + err.message);
+                            cancelBtn.disabled = false;
+                            cancelBtn.textContent = "Cancelar";
+                        }
+                    });
+
+                    list.appendChild(row);
+                });
+            } catch (error) {
+                status.textContent = "Erro ao carregar meus anúncios: " + error.message;
+            }
+        };
+
+        const loadMarketHistory = async () => {
+            status.textContent = "Carregando histórico...";
+            list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando histórico...</div>`;
+            try {
+                let historyItems = [];
+
+                if (Array.isArray(latestHistoryData) && latestHistoryData.length > 0) {
+                    historyItems = latestHistoryData;
+                }
+
+                if (historyItems.length === 0) {
+                    let payload = await gameApiRequest("/api/game/market?category=Items").catch(() => null);
+                    if (payload?.history) {
+                        historyItems = payload.history;
+                        latestHistoryData = payload.history;
+                        if (payload.mine) latestMyListingsData = payload.mine;
+                    }
+                }
+
+                if (historyItems.length === 0) {
+                    const win = await ensureGameMarketTab("Histórico").catch(() => null);
+                    const body = await waitForGameMarketBody(win, 1500).catch(() => null);
+                    if (body) {
+                        historyItems = extractHistoryFromMarketBody(body);
+                    }
+                }
+
+                status.textContent = `Exibindo ${historyItems.length} transação(ões) recente(s).`;
+
+                if (historyItems.length === 0) {
+                    list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:32px;grid-column:1/-1;font-size:13px;">Nenhuma transação registrada no histórico.</div>`;
+                    return;
+                }
+
+                list.innerHTML = "";
+                historyItems.forEach(entry => {
+                    const name = entry.name || entry.itemName || entry.title || "Item";
+                    const price = Number(entry.price || entry.totalPrice || 0);
+                    const qty = Number(entry.amount || entry.quantity || entry.qty || entry.count || 1);
+                    const isBuy = Boolean(
+                        entry.bought === true ||
+                        entry.isBuy === true ||
+                        (typeof entry.action === "string" && entry.action.toLowerCase().includes("buy")) ||
+                        (typeof entry.type === "string" && entry.type.toLowerCase().includes("buy"))
+                    );
+
+                    let dateStr = "Recente";
+                    const rawDate = entry.at || entry.date || entry.timestamp || entry.createdAt;
+                    if (rawDate) {
+                        try {
+                            const d = new Date(rawDate);
+                            if (!isNaN(d.getTime())) {
+                                dateStr = d.toLocaleString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    second: "2-digit"
+                                });
+                            }
+                        } catch (e) { }
+                    } else if (entry.dateStr) {
+                        dateStr = entry.dateStr;
+                    }
+
+                    const currency = String(entry.currency || "GOLD").toUpperCase();
+                    const symbol = currency === "DIAMONDS" ? "💎" : "$";
+
+                    const row = document.createElement("div");
+                    row.style.cssText = isBuy
+                        ? "display:flex;align-items:center;justify-content:space-between;background:linear-gradient(90deg, #1f1315 0%, #141924 100%);border:1px solid #7f1d1d;border-radius:10px;padding:12px 16px;color:#e2e8f0;grid-column:1/-1;"
+                        : "display:flex;align-items:center;justify-content:space-between;background:linear-gradient(90deg, #111f18 0%, #141924 100%);border:1px solid #14532d;border-radius:10px;padding:12px 16px;color:#e2e8f0;grid-column:1/-1;";
+
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span style="font-size:20px;">${isBuy ? '🛒' : '💰'}</span>
+                            <div>
+                                <div style="font-weight:800;font-size:13px;color:#f8fafc;">
+                                    <span style="color:${isBuy ? '#f87171' : '#4ade80'};font-weight:800;">${isBuy ? 'Comprou' : 'Vendeu'}</span>
+                                    <span style="color:#ffffff;font-weight:800;">${qty}× ${name}</span>
+                                </div>
+                                <div style="font-size:11px;color:#94a3b8;margin-top:3px;font-weight:600;">
+                                    📅 ${dateStr}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-weight:800;font-size:14px;color:${isBuy ? '#f87171' : '#4ade80'};">
+                                ${isBuy ? '-' : '+'}${symbol} ${price.toLocaleString("pt-BR")}
+                                <span style="font-size:10px;color:#94a3b8;font-weight:600;">/un</span>
+                            </div>
+                        </div>`;
+                    list.appendChild(row);
+                });
+            } catch (error) {
+                status.textContent = "Erro ao carregar histórico: " + error.message;
+            }
+        };
+
+        const loadAnnounceView = async () => {
+            status.textContent = "Selecione um item do inventário para criar um anúncio.";
+            list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando seu inventário...</div>`;
+            try {
+                ensureGameMarketTab("Anunciar").catch(() => { });
+                let invList = [];
+                try {
+                    invList = await requestGameEvent("inventory", "inv-get", latestInventory).catch(() => readSellableInventoryFromDOM());
+                } catch (e) {
+                    invList = await readSellableInventoryFromDOM();
+                }
+
+                list.innerHTML = "";
+
+                const wrapper = document.createElement("div");
+                wrapper.style.cssText = "background:#141924;border:1px solid #212c3e;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;grid-column:1/-1;max-width:560px;margin:0 auto;width:100%;box-sizing:border-box;";
+
+                let selectedItem = null;
+
+                wrapper.innerHTML = `
+                    <div style="font-weight:800;font-size:14px;color:#fcd34d;display:flex;align-items:center;gap:8px;">
+                        <span>📢</span> <span>Criar Novo Anúncio no Mercado</span>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label style="font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;">1. Escolha o Item para Vender:</label>
+                        <div class="announce-items-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(64px, 1fr));gap:6px;max-height:160px;overflow-y:auto;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:8px;">
+                            ${(Array.isArray(invList) ? invList : []).map(it => {
+                    const icon = getItemIconUrl(it);
+                    return `
+                                    <div class="announce-item-slot" data-id="${it.id || it.itemId}" data-name="${it.name}" data-qty="${it.quantity || it.qty || 1}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;background:#141924;border:1px solid #212c3e;border-radius:6px;padding:6px;cursor:pointer;position:relative;" title="${it.name}">
+                                        <img src="${icon}" style="width:28px;height:28px;object-fit:contain;">
+                                        <span style="font-size:9px;color:#fff;font-weight:800;margin-top:2px;">x${it.quantity || it.qty || 1}</span>
+                                    </div>`;
+                }).join('')}
+                        </div>
+                    </div>
+
+                    <div class="announce-form-box" style="display:none;flex-direction:column;gap:10px;border-top:1px solid #212c3e;padding-top:12px;">
+                        <div style="font-weight:800;font-size:13px;color:#38bdf8;" class="announce-selected-title">Item selecionado: -</div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div>
+                                <label style="font-size:11px;font-weight:800;color:#94a3b8;display:block;margin-bottom:4px;">Preço Unitário:</label>
+                                <input class="announce-price-input" type="number" min="1" value="10" style="width:100%;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:7px;color:#fff;font-weight:800;font-size:12px;outline:none;">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;font-weight:800;color:#94a3b8;display:block;margin-bottom:4px;">Quantidade:</label>
+                                <input class="announce-qty-input" type="number" min="1" value="1" style="width:100%;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:7px;color:#fff;font-weight:800;font-size:12px;outline:none;">
+                            </div>
+                        </div>
+
+                        <div style="display:flex;align-items:center;justify-content:space-between;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:8px 12px;margin-top:4px;">
+                            <span style="font-size:12px;color:#94a3b8;font-weight:700;">Moeda de Recebimento:</span>
+                            <select class="announce-currency-select" style="background:#141924;color:#4ade80;border:1px solid #212c3e;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:800;outline:none;">
+                                <option value="GOLD">$ Gold</option>
+                                <option value="DIAMONDS">💎 Diamonds</option>
+                            </select>
+                        </div>
+
+                        <button class="announce-submit-btn" type="button" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:8px;padding:10px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 8px rgba(229,57,53,0.4);margin-top:6px;">
+                            📢 Publicar Anúncio no Mercado
+                        </button>
+                    </div>`;
+
+                list.appendChild(wrapper);
+
+                const formBox = wrapper.querySelector(".announce-form-box");
+                const selectedTitle = wrapper.querySelector(".announce-selected-title");
+                const priceInput = wrapper.querySelector(".announce-price-input");
+                const qtyInput = wrapper.querySelector(".announce-qty-input");
+                const currencySelect = wrapper.querySelector(".announce-currency-select");
+                const submitBtn = wrapper.querySelector(".announce-submit-btn");
+
+                wrapper.querySelectorAll(".announce-item-slot").forEach(slot => {
+                    slot.addEventListener("click", () => {
+                        wrapper.querySelectorAll(".announce-item-slot").forEach(s => s.style.borderColor = "#212c3e");
+                        slot.style.borderColor = "#fcd34d";
+                        selectedItem = {
+                            id: slot.dataset.id,
+                            name: slot.dataset.name,
+                            maxQty: parseInt(slot.dataset.qty, 10) || 1
+                        };
+                        selectedTitle.textContent = `Item Selecionado: ${selectedItem.name} (Máx: ${selectedItem.maxQty})`;
+                        qtyInput.max = selectedItem.maxQty;
+                        qtyInput.value = 1;
+                        formBox.style.display = "flex";
+                    });
+                });
+
+                submitBtn.addEventListener("click", async () => {
+                    if (!selectedItem) return alert("Selecione um item para anunciar!");
+                    const price = parseInt(priceInput.value, 10) || 0;
+                    const quantity = parseInt(qtyInput.value, 10) || 1;
+                    const currency = currencySelect.value;
+                    if (price <= 0) return alert("Digite um preço válido maior que 0!");
+
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = "Publicando...";
+                    try {
+                        await gameApiRequest("/api/game/market/action", {
+                            method: "POST",
+                            body: JSON.stringify({
+                                action: "sell",
+                                itemId: selectedItem.id,
+                                price,
+                                quantity,
+                                currency
+                            })
+                        });
+                        alert("Anúncio criado com sucesso!");
+                        activeMode = "meus";
+                        updateSidebarActionStyles();
+                        topControls.style.display = "none";
+                        loadMyListings();
+                    } catch (err) {
+                        alert("Erro ao publicar anúncio: " + err.message);
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = "📢 Publicar Anúncio no Mercado";
+                    }
+                });
+
+            } catch (error) {
+                status.textContent = "Erro ao carregar inventário para anúncio: " + error.message;
+            }
+        };
+
+        function readMarketListingsFromDOM() {
+            const cards = Array.from(document.querySelectorAll(".mkt2-card, .mkt2-trow, .mkt-card, .market-listing"));
+            if (!cards || cards.length === 0) return [];
+
+            const items = [];
+            cards.forEach(card => {
+                const titleEl = card.querySelector(".mkt2-card-name, .mkt2-name, .mkt2-title, b, strong");
+                const name = titleEl ? titleEl.innerText.trim() : card.innerText.split("\n")[0] || "Item";
+
+                const priceEl = card.querySelector(".mkt2-card-price, .mkt2-price, .price");
+                const priceText = priceEl ? priceEl.innerText : card.innerText;
+                const isDiamond = priceText.toLowerCase().includes("diamond") || Boolean(card.querySelector("img[src*='diamond']"));
+                const priceMatch = priceText.match(/([\d.]+)/);
+                const price = priceMatch ? Number(priceMatch[1].replace(/\./g, "")) : 0;
+
+                const qtyEl = card.querySelector(".mkt2-card-qty, .mkt2-qty, .qty, .mkt2-count");
+                const qtyText = qtyEl ? qtyEl.innerText : card.innerText;
+                const qtyMatch = qtyText.match(/([\d.]+)\s*(?:×|x)/i)
+                    || qtyText.match(/Qtd:\s*([\d.]+)/i)
+                    || qtyText.match(/(?:×|x)\s*([\d.]+)/i);
+                const quantity = qtyMatch ? Number(qtyMatch[1].replace(/\./g, "")) : 1;
+
+                const imgEl = card.querySelector("img");
+                const iconUrl = imgEl ? imgEl.src : "";
+
+                items.push({
+                    name,
+                    price,
+                    quantity,
+                    currency: isDiamond ? "DIAMONDS" : "GOLD",
+                    iconUrl
+                });
+            });
+            return items;
+        }
+
+        const load = async () => {
+            status.textContent = "Carregando mercado global...";
+            list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando anúncios...</div>`;
+            try {
+                let payload = null;
+
+                try {
+                    payload = await gameApiRequest(`/api/game/market?category=${encodeURIComponent(activeCategory)}`);
+                } catch (e) { }
+
+                if (payload && typeof payload === "object") {
+                    if (Array.isArray(payload.mine)) {
+                        latestMyListingsData = payload.mine;
+                        const badgeEl = backdrop.querySelector(".my-listings-badge");
+                        if (badgeEl) badgeEl.textContent = payload.mine.length;
+                    }
+                    if (Array.isArray(payload.history)) {
+                        latestHistoryData = payload.history;
+                    }
+                }
+
+                let listings = Array.isArray(payload)
+                    ? payload
+                    : (payload?.listings || payload?.items || payload?.results || payload?.list || latestMarketData || []);
+
+                if (!listings || listings.length === 0) {
+                    const domItems = readMarketListingsFromDOM();
+                    if (domItems.length > 0) listings = domItems;
+                }
+
+                currentListings = listings;
+                pokemonFilters.style.display = activeCategory === "Pokemon" ? "flex" : "none";
+                renderLimit = 100;
+                render();
+            } catch (error) {
+                const domItems = readMarketListingsFromDOM();
+                if (domItems.length > 0) {
+                    currentListings = domItems;
+                    render();
+                } else {
+                    status.textContent = "Nenhum anúncio retornado.";
+                    list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Nenhum anúncio disponível nesta categoria. Clique em <b>↻ Atualizar</b> com o mercado do jogo aberto.</div>`;
+                }
+            }
+        };
+
+        backdrop.querySelector(".market-close").addEventListener("click", close);
+        backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+        backdrop.querySelector(".market-refresh").addEventListener("click", () => {
+            updateCharacterBalance();
+            if (activeMode === "meus") loadMyListings();
+            else if (activeMode === "historico") loadMarketHistory();
+            else if (activeMode === "anunciar") loadAnnounceView();
+            else load();
+        });
+        [search, sortSelect, showOffers, shinyOnly, ivMin, ivMax, levelMin, levelMax].forEach(ctrl => ctrl.addEventListener("input", () => {
+            renderLimit = 100;
+            render();
+        }));
+        load();
+        // Atualiza contagem inicial de meus anúncios via WebSocket ou API
+        (async () => {
+            let res = await gameApiRequest("/api/game/market/my").catch(() => null);
+            if (!res) {
+                sendGameMessage({ type: "market-my" });
+                res = await requestGameEvent("market-my", "market-my", latestMyListingsData, 1500).catch(() => null);
+            }
+            const arr = Array.isArray(res) ? res : (res?.listings || res?.items || latestMyListingsData || []);
+            const badgeEl = backdrop.querySelector(".my-listings-badge");
+            if (badgeEl) badgeEl.textContent = arr.length;
+        })();
+    }
+
+    // -------------------------------------------------------------------------
+    // INICIALIZAÇÃO CONTROLADA
+    // -------------------------------------------------------------------------
+    function inicializarTudo() {
+        carregarCreatures();
+        criarPainel();
+        observarTooltips();
+        iniciarEscutasEventos();
+        observarLogDeCapturas();
+        observarResgateDiario();
+        atualizarBannerDetectorShiny();
+        initCatchAnalyzerDB();
+
+        setInterval(() => {
+            if (typeof applyChatState === "function") applyChatState();
+        }, 1500);
+    }
+
+    if (document.readyState === "complete" || document.readyState === "interactive") {
+        inicializarTudo();
+    } else {
+        window.addEventListener("DOMContentLoaded", inicializarTudo);
+    }
 })();
