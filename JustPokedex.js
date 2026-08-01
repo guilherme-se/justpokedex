@@ -12,7 +12,7 @@
     "use strict";
 
     // -------------------------------------------------------------------------
-    // RASTREAMENTO GLOBAL DE WEBSOCKET & AUTENTICAÇÃO API DAS LOJAS / DEPOT
+    // RASTREAMENTO GLOBAL DE WEBSOCKET & MERCADO GLOBAL
     // -------------------------------------------------------------------------
     const NativeWebSocket = window.WebSocket;
     let gameSocket = null;
