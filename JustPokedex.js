@@ -4446,20 +4446,126 @@
         );
     }
 
+    function normalizarNomePokemon(nome) {
+        if (!nome) return "";
+        return String(nome)
+            .toLowerCase()
+            .replace(/^shiny\s+/i, "")
+            .replace(/\s+shiny$/i, "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]/g, "")
+            .trim();
+    }
+
+    function parsePokemon(texto) {
+        if (!texto || typeof texto !== "string") return null;
+
+        const linhas = texto.split("\n").map(l => l.trim()).filter(Boolean);
+        if (linhas.length === 0) return null;
+
+        let nome = "";
+        let nivel = null;
+
+        const primeiraLinha = linhas[0];
+        const matchNv = primeiraLinha.match(/^(.+?)\s+(?:Nv\.?|Lv\.?|Nível|Level)\s*(\d+)/i) ||
+                        texto.match(/(.+?)\s+(?:Nv\.?|Lv\.?|Nível|Level)\s*(\d+)/i);
+        if (matchNv) {
+            nome = matchNv[1].replace(/[()]/g, "").trim();
+            nivel = parseInt(matchNv[2], 10);
+        } else {
+            nome = primeiraLinha.replace(/[()]/g, "").trim();
+        }
+
+        if (!nome) return null;
+
+        if (nivel === null) {
+            const matchLvl = texto.match(/(?:Nv\.?|Lv\.?|Nível|Level)\s*:?\s*(\d+)/i);
+            if (matchLvl) nivel = parseInt(matchLvl[1], 10);
+        }
+
+        let poder = null;
+        const matchPoder = texto.match(/(?:Poder|Power)\s*:?\s*([\d.]+)/i);
+        if (matchPoder) {
+            poder = parseInt(matchPoder[1].replace(/\./g, ""), 10);
+        }
+
+        let qualidade = null;
+        let multQualidade = 1.0;
+        const matchQual = texto.match(/(?:Qualidade|Quality)\s*:?\s*([\d.,]+)/i);
+        if (matchQual) {
+            const qNum = parseFloat(matchQual[1].replace(",", "."));
+            if (!isNaN(qNum)) {
+                qualidade = qNum;
+                multQualidade = qNum;
+            }
+        }
+
+        let ivAtual = null;
+        let ivMaximo = 192;
+        const matchIV = texto.match(/IV\s*:?\s*([\d.,]+)(?:\s*\/\s*(\d+))?/i);
+        if (matchIV) {
+            ivAtual = parseFloat(matchIV[1].replace(",", "."));
+            if (matchIV[2]) ivMaximo = parseInt(matchIV[2], 10);
+        }
+
+        const extrairStat = (pattern) => {
+            const m = texto.match(pattern);
+            if (m) {
+                const v = parseInt(m[1].replace(/\./g, ""), 10);
+                return isNaN(v) ? null : v;
+            }
+            return null;
+        };
+
+        const hp = extrairStat(/(?:HP|Vida)\s*:?\s*(\d+)/i);
+        const atk = extrairStat(/(?:Atk|Ataque|Attack)\s*:?\s*(\d+)/i);
+        const def = extrairStat(/(?:Def|Defesa|Defense)\s*:?\s*(\d+)/i);
+        const spa = extrairStat(/(?:SpA|Sp\.?\s*Atk|Ataque\s*Especial)\s*:?\s*(\d+)/i);
+        const spd = extrairStat(/(?:SpD|Sp\.?\s*Def|Defesa\s*Especial)\s*:?\s*(\d+)/i);
+        const vel = extrairStat(/(?:Vel|Speed|Velocidade)\s*:?\s*(\d+)/i);
+
+        let tipos = [];
+        const matchTipos = texto.match(/(?:Tipos?|Types?)\s*:?\s*([^\n]+)/i);
+        if (matchTipos) {
+            tipos = matchTipos[1].split(/[,/]/).map(t => t.trim()).filter(Boolean);
+        }
+
+        const ativo = texto.toLowerCase().includes("ativo") || texto.includes("⚔");
+
+        return {
+            nome,
+            nivel: nivel ?? 1,
+            poder: poder ?? 0,
+            qualidade: qualidade ?? 1.0,
+            multiplicadorQualidade: multQualidade,
+            ivAtual,
+            ivMaximo,
+            hp,
+            atk,
+            def,
+            spa,
+            spd,
+            vel,
+            tipos: tipos.length > 0 ? tipos : ["Normal"],
+            ativo
+        };
+    }
+
     function processarTooltip(tooltip) {
         if (!mouseTrackingEnabled) return;
 
-        const texto =
-            tooltip?.innerText?.trim();
+        const texto = tooltip?.innerText?.trim() || tooltip?.textContent?.trim();
 
         if (!texto || texto === ultimoTexto) {
             return;
         }
 
-        if (
-            !texto.includes("Poder") ||
-            !/Nv\s*\d+/i.test(texto)
-        ) {
+        const temPoderOuNivel = (texto.includes("Poder") || texto.includes("Power") || texto.includes("Poder:")) ||
+                                (/(?:Nv\.?|Lv\.?|Nível|Level)\s*\d+/i.test(texto));
+        const temStats = texto.includes("HP") || texto.includes("Atk") || texto.includes("Ataque") || texto.includes("Defesa") || texto.includes("Qualidade");
+
+        if (!temPoderOuNivel && !temStats) {
             return;
         }
 
@@ -4475,9 +4581,7 @@
         ultimoTexto = texto;
         ultimoPokemon = pokemon;
 
-        const painel =
-            document.getElementById(CONFIG.panelId);
-
+        const painel = document.getElementById(CONFIG.panelId);
         if (painel) {
             painel.style.display = "flex";
         }
@@ -4489,61 +4593,34 @@
         atualizarPosicaoPainelItens();
         atualizarPainelComparacao();
 
-        console.log(
-            "[Poké Leitor] Pokémon capturado:",
-            pokemon
-        );
+        console.log("[Poké Leitor] Pokémon capturado:", pokemon);
     }
 
     function observarTooltips() {
-        const observer =
-            new MutationObserver(mutations => {
-                for (const mutation of mutations) {
-                    for (
-                        const node of
-                        mutation.addedNodes
-                    ) {
-                        if (
-                            !(
-                                node instanceof
-                                HTMLElement
-                            )
-                        ) {
-                            continue;
-                        }
+        const TOOLTIP_SELECTORS = ".inv-tip, .poke-tip, .item-tip, .tooltip, [class*='tip'], [class*='tooltip']";
 
-                        if (
-                            node.matches?.(
-                                CONFIG.tooltipSelector
-                            )
-                        ) {
-                            processarTooltip(node);
-                        }
+        const checarElemento = (node) => {
+            if (!(node instanceof HTMLElement)) return;
+            if (node.matches?.(TOOLTIP_SELECTORS)) {
+                processarTooltip(node);
+            }
+            const interno = node.querySelector?.(TOOLTIP_SELECTORS);
+            if (interno) {
+                processarTooltip(interno);
+            }
+        };
 
-                        const tooltipInterno =
-                            node.querySelector?.(
-                                CONFIG.tooltipSelector
-                            );
-
-                        if (tooltipInterno) {
-                            processarTooltip(
-                                tooltipInterno
-                            );
-                        }
-                    }
+        const observer = new MutationObserver(mutations => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    checarElemento(node);
                 }
-
-                const tooltipAtual =
-                    document.querySelector(
-                        CONFIG.tooltipSelector
-                    );
-
-                if (tooltipAtual) {
-                    processarTooltip(
-                        tooltipAtual
-                    );
-                }
-            });
+            }
+            const tooltipAtual = document.querySelector(TOOLTIP_SELECTORS);
+            if (tooltipAtual) {
+                processarTooltip(tooltipAtual);
+            }
+        });
 
         observer.observe(document.body, {
             childList: true,
@@ -4551,9 +4628,21 @@
             characterData: true
         });
 
-        console.log(
-            "[Poké Leitor] Poké Leitor e Analisador iniciado."
-        );
+        // Escutador direto de movimento do mouse no documento para resposta instantânea ao passar o mouse
+        const escutarMouse = (e) => {
+            if (!mouseTrackingEnabled) return;
+            const alvo = e.target;
+            if (!alvo) return;
+            const tipEl = alvo.closest?.(TOOLTIP_SELECTORS) || document.querySelector(TOOLTIP_SELECTORS);
+            if (tipEl) {
+                processarTooltip(tipEl);
+            }
+        };
+
+        document.addEventListener("mouseover", escutarMouse, { passive: true });
+        document.addEventListener("mousemove", escutarMouse, { passive: true });
+
+        console.log("[Poké Leitor] Poké Leitor e Analisador de Tooltips iniciado com sucesso.");
     }
 
     function criarCSS() {
