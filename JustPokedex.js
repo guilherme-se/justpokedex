@@ -12,7 +12,7 @@
     "use strict";
 
     // -------------------------------------------------------------------------
-    // RASTREAMENTO GLOBAL DE WEBSOCKET & MERCADO GLOBAL
+    // RASTREAMENTO GLOBAL
     // -------------------------------------------------------------------------
     const NativeWebSocket = window.WebSocket;
     let gameSocket = null;
@@ -4446,126 +4446,20 @@
         );
     }
 
-    function normalizarNomePokemon(nome) {
-        if (!nome) return "";
-        return String(nome)
-            .toLowerCase()
-            .replace(/^shiny\s+/i, "")
-            .replace(/\s+shiny$/i, "")
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .replace(/[^a-z0-9]/g, "")
-            .trim();
-    }
-
-    function parsePokemon(texto) {
-        if (!texto || typeof texto !== "string") return null;
-
-        const linhas = texto.split("\n").map(l => l.trim()).filter(Boolean);
-        if (linhas.length === 0) return null;
-
-        let nome = "";
-        let nivel = null;
-
-        const primeiraLinha = linhas[0];
-        const matchNv = primeiraLinha.match(/^(.+?)\s+(?:Nv\.?|Lv\.?|Nível|Level)\s*(\d+)/i) ||
-                        texto.match(/(.+?)\s+(?:Nv\.?|Lv\.?|Nível|Level)\s*(\d+)/i);
-        if (matchNv) {
-            nome = matchNv[1].replace(/[()]/g, "").trim();
-            nivel = parseInt(matchNv[2], 10);
-        } else {
-            nome = primeiraLinha.replace(/[()]/g, "").trim();
-        }
-
-        if (!nome) return null;
-
-        if (nivel === null) {
-            const matchLvl = texto.match(/(?:Nv\.?|Lv\.?|Nível|Level)\s*:?\s*(\d+)/i);
-            if (matchLvl) nivel = parseInt(matchLvl[1], 10);
-        }
-
-        let poder = null;
-        const matchPoder = texto.match(/(?:Poder|Power)\s*:?\s*([\d.]+)/i);
-        if (matchPoder) {
-            poder = parseInt(matchPoder[1].replace(/\./g, ""), 10);
-        }
-
-        let qualidade = null;
-        let multQualidade = 1.0;
-        const matchQual = texto.match(/(?:Qualidade|Quality)\s*:?\s*([\d.,]+)/i);
-        if (matchQual) {
-            const qNum = parseFloat(matchQual[1].replace(",", "."));
-            if (!isNaN(qNum)) {
-                qualidade = qNum;
-                multQualidade = qNum;
-            }
-        }
-
-        let ivAtual = null;
-        let ivMaximo = 192;
-        const matchIV = texto.match(/IV\s*:?\s*([\d.,]+)(?:\s*\/\s*(\d+))?/i);
-        if (matchIV) {
-            ivAtual = parseFloat(matchIV[1].replace(",", "."));
-            if (matchIV[2]) ivMaximo = parseInt(matchIV[2], 10);
-        }
-
-        const extrairStat = (pattern) => {
-            const m = texto.match(pattern);
-            if (m) {
-                const v = parseInt(m[1].replace(/\./g, ""), 10);
-                return isNaN(v) ? null : v;
-            }
-            return null;
-        };
-
-        const hp = extrairStat(/(?:HP|Vida)\s*:?\s*(\d+)/i);
-        const atk = extrairStat(/(?:Atk|Ataque|Attack)\s*:?\s*(\d+)/i);
-        const def = extrairStat(/(?:Def|Defesa|Defense)\s*:?\s*(\d+)/i);
-        const spa = extrairStat(/(?:SpA|Sp\.?\s*Atk|Ataque\s*Especial)\s*:?\s*(\d+)/i);
-        const spd = extrairStat(/(?:SpD|Sp\.?\s*Def|Defesa\s*Especial)\s*:?\s*(\d+)/i);
-        const vel = extrairStat(/(?:Vel|Speed|Velocidade)\s*:?\s*(\d+)/i);
-
-        let tipos = [];
-        const matchTipos = texto.match(/(?:Tipos?|Types?)\s*:?\s*([^\n]+)/i);
-        if (matchTipos) {
-            tipos = matchTipos[1].split(/[,/]/).map(t => t.trim()).filter(Boolean);
-        }
-
-        const ativo = texto.toLowerCase().includes("ativo") || texto.includes("⚔");
-
-        return {
-            nome,
-            nivel: nivel ?? 1,
-            poder: poder ?? 0,
-            qualidade: qualidade ?? 1.0,
-            multiplicadorQualidade: multQualidade,
-            ivAtual,
-            ivMaximo,
-            hp,
-            atk,
-            def,
-            spa,
-            spd,
-            vel,
-            tipos: tipos.length > 0 ? tipos : ["Normal"],
-            ativo
-        };
-    }
-
     function processarTooltip(tooltip) {
         if (!mouseTrackingEnabled) return;
 
-        const texto = tooltip?.innerText?.trim() || tooltip?.textContent?.trim();
+        const texto =
+            tooltip?.innerText?.trim();
 
         if (!texto || texto === ultimoTexto) {
             return;
         }
 
-        const temPoderOuNivel = (texto.includes("Poder") || texto.includes("Power") || texto.includes("Poder:")) ||
-                                (/(?:Nv\.?|Lv\.?|Nível|Level)\s*\d+/i.test(texto));
-        const temStats = texto.includes("HP") || texto.includes("Atk") || texto.includes("Ataque") || texto.includes("Defesa") || texto.includes("Qualidade");
-
-        if (!temPoderOuNivel && !temStats) {
+        if (
+            !texto.includes("Poder") ||
+            !/Nv\s*\d+/i.test(texto)
+        ) {
             return;
         }
 
@@ -4581,7 +4475,9 @@
         ultimoTexto = texto;
         ultimoPokemon = pokemon;
 
-        const painel = document.getElementById(CONFIG.panelId);
+        const painel =
+            document.getElementById(CONFIG.panelId);
+
         if (painel) {
             painel.style.display = "flex";
         }
@@ -4593,34 +4489,61 @@
         atualizarPosicaoPainelItens();
         atualizarPainelComparacao();
 
-        console.log("[Poké Leitor] Pokémon capturado:", pokemon);
+        console.log(
+            "[Poké Leitor] Pokémon capturado:",
+            pokemon
+        );
     }
 
     function observarTooltips() {
-        const TOOLTIP_SELECTORS = ".inv-tip, .poke-tip, .item-tip, .tooltip, [class*='tip'], [class*='tooltip']";
+        const observer =
+            new MutationObserver(mutations => {
+                for (const mutation of mutations) {
+                    for (
+                        const node of
+                        mutation.addedNodes
+                    ) {
+                        if (
+                            !(
+                                node instanceof
+                                HTMLElement
+                            )
+                        ) {
+                            continue;
+                        }
 
-        const checarElemento = (node) => {
-            if (!(node instanceof HTMLElement)) return;
-            if (node.matches?.(TOOLTIP_SELECTORS)) {
-                processarTooltip(node);
-            }
-            const interno = node.querySelector?.(TOOLTIP_SELECTORS);
-            if (interno) {
-                processarTooltip(interno);
-            }
-        };
+                        if (
+                            node.matches?.(
+                                CONFIG.tooltipSelector
+                            )
+                        ) {
+                            processarTooltip(node);
+                        }
 
-        const observer = new MutationObserver(mutations => {
-            for (const mutation of mutations) {
-                for (const node of mutation.addedNodes) {
-                    checarElemento(node);
+                        const tooltipInterno =
+                            node.querySelector?.(
+                                CONFIG.tooltipSelector
+                            );
+
+                        if (tooltipInterno) {
+                            processarTooltip(
+                                tooltipInterno
+                            );
+                        }
+                    }
                 }
-            }
-            const tooltipAtual = document.querySelector(TOOLTIP_SELECTORS);
-            if (tooltipAtual) {
-                processarTooltip(tooltipAtual);
-            }
-        });
+
+                const tooltipAtual =
+                    document.querySelector(
+                        CONFIG.tooltipSelector
+                    );
+
+                if (tooltipAtual) {
+                    processarTooltip(
+                        tooltipAtual
+                    );
+                }
+            });
 
         observer.observe(document.body, {
             childList: true,
@@ -4628,21 +4551,9 @@
             characterData: true
         });
 
-        // Escutador direto de movimento do mouse no documento para resposta instantânea ao passar o mouse
-        const escutarMouse = (e) => {
-            if (!mouseTrackingEnabled) return;
-            const alvo = e.target;
-            if (!alvo) return;
-            const tipEl = alvo.closest?.(TOOLTIP_SELECTORS) || document.querySelector(TOOLTIP_SELECTORS);
-            if (tipEl) {
-                processarTooltip(tipEl);
-            }
-        };
-
-        document.addEventListener("mouseover", escutarMouse, { passive: true });
-        document.addEventListener("mousemove", escutarMouse, { passive: true });
-
-        console.log("[Poké Leitor] Poké Leitor e Analisador de Tooltips iniciado com sucesso.");
+        console.log(
+            "[Poké Leitor] Poké Leitor e Analisador iniciado."
+        );
     }
 
     function criarCSS() {
@@ -9063,7 +8974,388 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         return itemCatalogMapCache;
     }
 
+    async function showPortableDepot() {
+        document.querySelector(".portable-depot-backdrop")?.remove();
 
+        const backdrop = document.createElement("div");
+        backdrop.className = "sell-confirm-backdrop portable-depot-backdrop";
+        backdrop.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.8);backdrop-filter:blur(6px);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        backdrop.innerHTML = `
+            <div class="sell-confirm-modal" style="background:#0c121d;border:2px solid #f1c644;border-radius:14px;padding:0;color:#e2e8f0;width:860px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.95), 0 0 20px rgba(241,198,68,0.2);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+                <div class="sell-confirm-title" style="background:linear-gradient(180deg,#e8403d 0%,#b91f27 55%,#8e141c 100%);border-bottom:3px solid #151515;padding:10px 16px;font-size:15px;font-weight:800;color:#ffffff;display:flex;align-items:center;gap:10px;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
+                    <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(to bottom,#f34848 0%,#f34848 43%,#151515 43%,#151515 57%,#f7f7f7 57%);border:2px solid #171717;position:relative;flex:none;">
+                        <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:6px;height:6px;border:1.5px solid #171717;border-radius:50%;background:#fff;"></span>
+                    </div>
+                    <span style="font-size:15px;letter-spacing:0.3px;color:#fff;">JustPokédex <span style="font-size:13px;color:#fcd34d;font-weight:700;margin-left:4px;">· Depot Portátil</span></span>
+                    <div style="margin-left:auto;display:flex;gap:6px;">
+                        <button class="depot-tab active" data-tab="items" type="button" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:5px 14px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);transition:all 0.15s ease;">🎒 Itens</button>
+                        <button class="depot-tab" data-tab="pokemon" type="button" style="background:#171b23;color:#94a3b8;border:1px solid #273546;border-radius:6px;padding:5px 14px;font-size:12px;font-weight:800;cursor:pointer;transition:all 0.15s ease;">🐾 Pokémon</button>
+                    </div>
+                    <button class="portable-depot-close" type="button" style="background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;font-size:18px;cursor:pointer;margin-left:8px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
+                </div>
+                <div class="portable-depot-filter-bar" style="background:#141924;border-bottom:1px solid #212c3e;padding:10px 16px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <input type="text" id="depot-search-input" placeholder="🔍 Buscar Pokémon..." style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 12px;color:#fff;font-size:12px;width:170px;outline:none;" />
+                    
+                    <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:#cbd5e1;font-weight:bold;">
+                        <span style="color:#f1c644;">IV:</span>
+                        <input type="number" id="depot-iv-min" placeholder="de" style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 8px;color:#fff;font-size:12px;width:55px;outline:none;" />
+                        <span>-</span>
+                        <input type="number" id="depot-iv-max" placeholder="até" style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 8px;color:#fff;font-size:12px;width:55px;outline:none;" />
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:#cbd5e1;font-weight:bold;">
+                        <span style="color:#f1c644;">Q:</span>
+                        <input type="number" step="0.1" id="depot-q-min" placeholder="de" style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 8px;color:#fff;font-size:12px;width:55px;outline:none;" />
+                        <span>-</span>
+                        <input type="number" step="0.1" id="depot-q-max" placeholder="até" style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 8px;color:#fff;font-size:12px;width:55px;outline:none;" />
+                    </div>
+
+                    <select id="depot-rarity-select" style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 12px;color:#f1c644;font-weight:bold;font-size:12px;outline:none;cursor:pointer;">
+                        <option value="">Todas as raridades</option>
+                        <option value="fraca">Fraca</option>
+                        <option value="comum">Comum</option>
+                        <option value="incomum">Incomum</option>
+                        <option value="rara">Rara</option>
+                        <option value="epica">Épica</option>
+                        <option value="lendaria">Lendária</option>
+                        <option value="mitica">Mítica</option>
+                        <option value="ancia">Anciã</option>
+                        <option value="divina">Divina</option>
+                    </select>
+                </div>
+                <div class="sell-confirm-body" style="padding:16px;">
+                    <div class="portable-depot-status" style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Carregando dados do Depot...</div>
+                    <div class="portable-depot-content" style="display:flex;gap:14px;flex-wrap:wrap;"></div>
+                </div>
+                <div style="background:#070a11;border-top:1px solid #1c2637;padding:8px 16px;text-align:center;font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:0.3px;">
+                    Crédito para funcionalidade do desjunior
+                </div>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+
+        const close = () => backdrop.remove();
+        backdrop.querySelector(".portable-depot-close").addEventListener("click", close);
+        backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
+
+        const status = backdrop.querySelector(".portable-depot-status");
+        const content = backdrop.querySelector(".portable-depot-content");
+        const filterBar = backdrop.querySelector(".portable-depot-filter-bar");
+        const searchInput = backdrop.querySelector("#depot-search-input");
+        const ivMinInput = backdrop.querySelector("#depot-iv-min");
+        const ivMaxInput = backdrop.querySelector("#depot-iv-max");
+        const qMinInput = backdrop.querySelector("#depot-q-min");
+        const qMaxInput = backdrop.querySelector("#depot-q-max");
+        const raritySelect = backdrop.querySelector("#depot-rarity-select");
+
+        let activeTab = "items";
+        let depotData = { inventory: [], depot: [], maxSlots: 100 };
+        let pokes = [];
+        let busy = false;
+
+        const onFilterChange = () => render();
+        if (searchInput) searchInput.addEventListener("input", onFilterChange);
+        if (ivMinInput) ivMinInput.addEventListener("input", onFilterChange);
+        if (ivMaxInput) ivMaxInput.addEventListener("input", onFilterChange);
+        if (qMinInput) qMinInput.addEventListener("input", onFilterChange);
+        if (qMaxInput) qMaxInput.addEventListener("input", onFilterChange);
+        if (raritySelect) raritySelect.addEventListener("change", onFilterChange);
+
+        let catalog = new Map();
+        try {
+            catalog = (await getItemCatalogMap()) || new Map();
+        } catch (e) {
+            console.warn("[JustPokedex] Erro catalog:", e);
+        }
+
+        const makeColumn = (title, entries, direction, emptyText, isPokemon = false) => {
+            const list = Array.isArray(entries) ? entries : [];
+            const column = document.createElement("section");
+            column.style.cssText = "flex:1;min-width:280px;background:#121722;border:1px solid #212c3d;border-radius:10px;padding:12px;max-height:60vh;overflow-y:auto;box-sizing:border-box;";
+
+            const heading = document.createElement("div");
+            heading.style.cssText = "font-weight:800;font-size:13px;color:#f8fafc;margin:0 0 10px;display:flex;align-items:center;justify-content:space-between;";
+            heading.innerHTML = `<span>${title}</span> <span style="background:#1c2637;color:#f1c644;border:1px solid rgba(241,198,68,0.3);padding:2px 8px;border-radius:12px;font-size:11px;font-weight:bold;">${list.length}</span>`;
+            column.appendChild(heading);
+
+            if (!list.length) {
+                const empty = document.createElement("div");
+                empty.style.cssText = "color:#64748b;text-align:center;padding:36px 12px;font-size:12.5px;";
+                empty.textContent = emptyText;
+                column.appendChild(empty);
+                return column;
+            }
+
+            list.forEach(entry => {
+                if (!entry) return;
+                const row = document.createElement("div");
+                row.style.cssText = "display:flex;width:100%;align-items:center;gap:10px;background:linear-gradient(135deg,#172030 0%,#111724 100%);color:#f8fafc;border:1px solid #24344a;border-radius:8px;padding:9px 12px;margin:0 0 8px;box-sizing:border-box;transition:all 0.15s ease;";
+                row.onmouseover = () => { row.style.background = "#1b263b"; row.style.borderColor = "#f1c644"; };
+                row.onmouseout = () => { row.style.background = "linear-gradient(135deg,#172030 0%,#111724 100%)"; row.style.borderColor = "#24344a"; };
+
+                let imageContainer = document.createElement("div");
+                imageContainer.style.cssText = "width:40px;height:40px;display:flex;align-items:center;justify-content:center;flex:none;background:rgba(0,0,0,0.35);border-radius:6px;border:1px solid rgba(255,255,255,0.06);overflow:hidden;";
+
+                if (isPokemon) {
+                    const speciesId = entry.speciesId || entry.pokeId || (typeof obterInfoPokemon === "function" ? obterInfoPokemon(entry.name)?.id : null) || 1;
+                    const imgEl = document.createElement("img");
+                    imgEl.style.cssText = "width:40px;height:40px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.6));image-rendering:pixelated;";
+
+                    if (typeof obterUrlsSprite === "function" && speciesId) {
+                        const urls = obterUrlsSprite(speciesId, entry.shiny);
+                        imgEl.src = urls.anim;
+                        imgEl.setAttribute("data-fallback", urls.still);
+                        imgEl.onerror = function () {
+                            if (this.dataset.fallback) {
+                                this.src = this.dataset.fallback;
+                                this.dataset.fallback = "";
+                            } else {
+                                this.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${speciesId}.png`;
+                            }
+                        };
+                    } else {
+                        imgEl.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${entry.shiny ? "shiny/" : ""}${speciesId}.png`;
+                    }
+                    imageContainer.appendChild(imgEl);
+                } else {
+                    const imgEl = document.createElement("img");
+                    const catObj = catalog?.get ? (catalog.get(String(entry.itemId || entry.id).toLowerCase()) || catalog.get(String(entry.name || "").toLowerCase())) : null;
+                    const iconUrl = entry.icon || catObj?.icon;
+                    imgEl.src = iconUrl || `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${String(entry.name || "").toLowerCase().replace(/\s+/g, "-")}.png`;
+                    imgEl.alt = entry.name || "";
+                    imgEl.style.cssText = "width:34px;height:34px;object-fit:contain;";
+                    imgEl.onerror = function () {
+                        this.src = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+                    };
+                    imageContainer.appendChild(imgEl);
+                }
+
+                const labelBox = document.createElement("div");
+                labelBox.style.cssText = "min-width:0;flex:1;";
+
+                if (isPokemon) {
+                    const isLegendary = Boolean(entry.isLegendary || (entry.speciesId && entry.speciesId >= 144 && entry.speciesId <= 151));
+                    const flags = [
+                        entry.shiny ? "✨" : "",
+                        entry.locked ? "🔒" : "",
+                        (entry.market || entry.listed) ? "🏷️" : "",
+                        isLegendary ? "👑" : ""
+                    ].filter(Boolean).join(" ");
+
+                    const ivVal = Number(entry.ivTotal || 0);
+                    const ivColor = ivVal >= 150 ? "#48bb78" : (ivVal >= 110 ? "#60a5fa" : "#94a3b8");
+                    const qualVal = Number(entry.quality || 0).toFixed(1);
+
+                    const safeEsc = typeof escapeHtml === "function" ? escapeHtml : (v => String(v ?? ""));
+                    labelBox.innerHTML = `
+                        <div style="font-weight:700;font-size:12.5px;color:#fff;display:flex;align-items:center;gap:4px;">
+                            ${safeEsc(entry.name || `Pokémon ${entry.pokeId || entry.id}`)} <span style="font-size:11px;">${flags}</span>
+                        </div>
+                        <div style="font-size:11px;margin-top:2px;display:flex;gap:6px;">
+                            <span style="color:${ivColor};font-weight:bold;">IV ${ivVal}</span>
+                            <span style="color:#94a3b8;">· Q ${qualVal}</span>
+                        </div>
+                    `;
+                } else {
+                    const safeEsc = typeof escapeHtml === "function" ? escapeHtml : (v => String(v ?? ""));
+                    const catObj = catalog?.get ? (catalog.get(String(entry.itemId || entry.id).toLowerCase()) || catalog.get(String(entry.name || "").toLowerCase())) : null;
+                    const displayName = entry.name || catObj?.name || `Item ${entry.itemId || entry.id}`;
+                    labelBox.innerHTML = `
+                        <div style="font-weight:700;font-size:12.5px;color:#fff;">${safeEsc(displayName)}</div>
+                        <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Qtd: <b style="color:#f1c644;">${Number(entry.quantity || entry.qty || 1).toLocaleString("pt-BR")}</b></div>
+                    `;
+                }
+
+                const actionBtn = document.createElement("button");
+                actionBtn.type = "button";
+                actionBtn.style.cssText = direction === "store"
+                    ? "background:linear-gradient(180deg,#dc2626 0%,#991b1b 100%);color:#fff;border:1px solid #f87171;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:800;cursor:pointer;flex:none;box-shadow:0 2px 4px rgba(220,38,38,0.3);transition:all 0.15s ease;"
+                    : "background:linear-gradient(180deg,#d97706 0%,#b45309 100%);color:#fff;border:1px solid #fbbf24;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:800;cursor:pointer;flex:none;box-shadow:0 2px 4px rgba(217,119,6,0.3);transition:all 0.15s ease;";
+                actionBtn.textContent = direction === "store" ? "Guardar →" : "← Retirar";
+
+                actionBtn.addEventListener("click", async () => {
+                    if (busy) return;
+                    busy = true;
+                    actionBtn.disabled = true;
+                    actionBtn.style.opacity = "0.6";
+                    try {
+                        if (isPokemon) {
+                            sendGameMessage({ type: direction === "store" ? "poke-store" : "poke-withdraw", pokeId: entry.id });
+                            latestPokemon = null;
+                            await new Promise(resolve => setTimeout(resolve, 350));
+                            pokes = await requestGameEvent("pokes", "pokes-get", latestPokemon);
+                        } else {
+                            depotData = await gameApiRequest("/api/game/depot/move", {
+                                method: "POST",
+                                body: JSON.stringify({ itemId: entry.id || entry.itemId, dir: direction })
+                            });
+                        }
+                        render();
+                    } catch (error) {
+                        alert(error.message || "Não foi possível mover.");
+                    } finally {
+                        busy = false;
+                    }
+                });
+
+                row.append(imageContainer, labelBox, actionBtn);
+                column.appendChild(row);
+            });
+            return column;
+        };
+
+        const render = () => {
+            content.innerHTML = "";
+            content.style.cssText = "display:flex;gap:14px;flex-wrap:wrap;";
+            if (activeTab === "items") {
+                if (filterBar) filterBar.style.display = "none";
+                const invList = depotData?.inventory || depotData?.items || [];
+                const depList = depotData?.depot || [];
+                content.append(
+                    makeColumn("🎒 Mochila", invList, "store", "A mochila está vazia."),
+                    makeColumn(`📦 Depot (${depList.length}/${depotData?.maxSlots || 100})`, depList, "withdraw", "O Depot está vazio.")
+                );
+            } else {
+                if (filterBar) filterBar.style.display = "flex";
+                const safePokes = Array.isArray(pokes) ? pokes : [];
+
+                const searchVal = searchInput ? searchInput.value.toLowerCase().trim() : "";
+                const ivMin = ivMinInput && ivMinInput.value !== "" ? Number(ivMinInput.value) : null;
+                const ivMax = ivMaxInput && ivMaxInput.value !== "" ? Number(ivMaxInput.value) : null;
+                const qMin = qMinInput && qMinInput.value !== "" ? Number(qMinInput.value) : null;
+                const qMax = qMaxInput && qMaxInput.value !== "" ? Number(qMaxInput.value) : null;
+                const rarityVal = raritySelect ? raritySelect.value.toLowerCase().trim() : "";
+
+                const filtered = safePokes.filter(poke => {
+                    if (!poke) return false;
+                    const nameMatch = !searchVal || String(poke.name || poke.pokeId || "").toLowerCase().includes(searchVal);
+
+                    const ivVal = Number(poke.ivTotal || 0);
+                    const ivMinMatch = ivMin === null || ivVal >= ivMin;
+                    const ivMaxMatch = ivMax === null || ivVal <= ivMax;
+
+                    const qualVal = Number(poke.quality ?? poke.qualidade ?? poke.q ?? 0);
+                    const qMinMatch = qMin === null || qualVal >= qMin;
+                    const qMaxMatch = qMax === null || qualVal <= qMax;
+
+                    let rarityMatch = true;
+                    if (rarityVal) {
+                        const rawRarity = String(
+                            poke.rarity || poke.raridade || poke.tier || poke.qualityTier ||
+                            (typeof obterInfoPokemon === "function" ? (obterInfoPokemon(poke.name)?.qualidade || obterInfoPokemon(poke.name)?.raridade) : "") || ""
+                        ).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+                        if (rarityVal === "lendaria") {
+                            const isLegendary = Boolean(poke.isLegendary || (poke.speciesId && poke.speciesId >= 144 && poke.speciesId <= 151) || rawRarity.includes("lenda"));
+                            rarityMatch = isLegendary;
+                        } else {
+                            rarityMatch = rawRarity.includes(rarityVal);
+                        }
+                    }
+
+                    return nameMatch && ivMinMatch && ivMaxMatch && qMinMatch && qMaxMatch && rarityMatch;
+                });
+
+                const team = filtered.filter(poke => poke && poke.team && !String(poke.id).startsWith("team-"));
+                const box = filtered.filter(poke => poke && !poke.team);
+                content.append(
+                    makeColumn("Equipe", team, "store", "Nenhum Pokémon na equipe.", true),
+                    makeColumn("Box", box, "withdraw", "Nenhum Pokémon no Box.", true)
+                );
+            }
+        };
+
+        backdrop.querySelectorAll(".depot-tab").forEach(tab => {
+            tab.addEventListener("click", () => {
+                activeTab = tab.dataset.tab;
+                backdrop.querySelectorAll(".depot-tab").forEach(button => {
+                    const isActive = button === tab;
+                    button.style.background = isActive ? "linear-gradient(180deg,#e53935 0%,#c62828 100%)" : "#171b23";
+                    button.style.color = isActive ? "#ffffff" : "#94a3b8";
+                    button.style.borderColor = isActive ? "#ff7961" : "#273546";
+                    button.style.boxShadow = isActive ? "0 2px 6px rgba(229,57,53,0.4)" : "none";
+                });
+                render();
+            });
+        });
+
+        try {
+            const [depotRes, pokesRes] = await Promise.allSettled([
+                gameApiRequest("/api/game/depot").catch(e => { console.warn("depot api err:", e); return null; }),
+                requestGameEvent("pokes", "pokes-get", latestPokemon).catch(e => { console.warn("pokes ws err:", e); return []; })
+            ]);
+
+            if (depotRes.status === "fulfilled" && depotRes.value) {
+                const res = depotRes.value;
+                const rawInv = res.inventory || res.items || res.backpack || [];
+                const rawDep = res.depot || res.depotItems || res.box || [];
+
+                depotData = {
+                    inventory: rawInv.map(entry => {
+                        const cat = catalog?.get ? (catalog.get(String(entry.itemId || entry.id).toLowerCase()) || catalog.get(String(entry.name || "").toLowerCase())) : null;
+                        return {
+                            id: entry.id || entry.itemId,
+                            itemId: String(entry.itemId || entry.id),
+                            name: entry.name || cat?.name || `Item ${entry.itemId || entry.id}`,
+                            icon: entry.icon || entry.image || cat?.icon || cat?.image || "",
+                            quantity: Number(entry.quantity || entry.qty || entry.count || 1)
+                        };
+                    }),
+                    depot: rawDep.map(entry => {
+                        const cat = catalog?.get ? (catalog.get(String(entry.itemId || entry.id).toLowerCase()) || catalog.get(String(entry.name || "").toLowerCase())) : null;
+                        return {
+                            id: entry.id || entry.itemId,
+                            itemId: String(entry.itemId || entry.id),
+                            name: entry.name || cat?.name || `Item ${entry.itemId || entry.id}`,
+                            icon: entry.icon || entry.image || cat?.icon || cat?.image || "",
+                            quantity: Number(entry.quantity || entry.qty || entry.count || 1)
+                        };
+                    }),
+                    maxSlots: res.maxSlots || res.capacity || 100
+                };
+            }
+
+            // Fallback for inventory items if depotData.inventory is empty:
+            if (!depotData || !depotData.inventory || depotData.inventory.length === 0) {
+                let invList = [];
+                try {
+                    const wsInv = await requestGameEvent("inventory", "inv-get", latestInventory).catch(() => []);
+                    invList = (wsInv && wsInv.length) ? wsInv : (await readSellableInventoryFromDOM());
+                } catch (e) {
+                    console.warn("inventory fallback err:", e);
+                }
+
+                const mappedInv = (Array.isArray(invList) ? invList : []).map(entry => {
+                    const cat = catalog?.get ? (catalog.get(String(entry.itemId || entry.id).toLowerCase()) || catalog.get(String(entry.name || "").toLowerCase())) : null;
+                    return {
+                        id: entry.id || entry.itemId,
+                        itemId: String(entry.itemId || entry.id),
+                        name: entry.name || cat?.name || `Item ${entry.itemId || entry.id}`,
+                        icon: entry.icon || entry.image || cat?.icon || cat?.image || "",
+                        quantity: Number(entry.quantity || entry.qty || entry.count || 1)
+                    };
+                });
+                if (!depotData) {
+                    depotData = { inventory: mappedInv, depot: [], maxSlots: 100 };
+                } else {
+                    depotData.inventory = mappedInv;
+                }
+            }
+
+            if (pokesRes.status === "fulfilled" && Array.isArray(pokesRes.value)) {
+                pokes = pokesRes.value;
+            }
+
+            if (status && status.parentNode) status.remove();
+            render();
+        } catch (error) {
+            console.error("Erro critico Depot:", error);
+            if (status) {
+                status.textContent = "Erro no Depot portátil: " + (error?.message || error);
+                status.style.color = "#f44336";
+            }
+        }
+    }
 
     function showGlobalMarketWindow() {
         document.querySelector(".script-market-backdrop")?.remove();
@@ -9616,7 +9908,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         };
 
         function findGameMarketWindow() {
-            return document.querySelector("div.win-window.mkt2-window, .mkt2-window, [class*='mkt2-window']") 
+            return document.querySelector("div.win-window.mkt2-window, .mkt2-window, [class*='mkt2-window']")
                 || document.querySelector("nav.mkt2-tabs, nav[class*='mkt2-tabs']")?.closest("div[class*='window'], div[class*='win'], div");
         }
 
@@ -10210,6 +10502,942 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         })();
     }
 
+    async function showPortableBallShop() {
+        if (typeof sendGameMessage === "function") {
+            sendGameMessage({ type: "inv-get" });
+            sendGameMessage({ type: "pokes-get" });
+            sendGameMessage({ type: "shop-open" });
+        }
+
+        // Remove qualquer janela anterior da Loja do Mark criada pelo script
+        document.querySelector(".script-mark-shop-backdrop")?.remove();
+
+        const backdrop = document.createElement("div");
+        backdrop.className = "script-mark-shop-backdrop";
+        backdrop.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999999;display:flex;align-items:center;justify-content:center;padding:16px;";
+        backdrop.innerHTML = `
+            <div class="sell-confirm-modal script-mark-shop-window" style="background:#0c121d;border:2px solid #f1c644;border-radius:14px;padding:0;color:#e2e8f0;width:680px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.95), 0 0 20px rgba(241,198,68,0.2);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;flex-direction:column;max-height:86vh;">
+                <!-- Cabeçalho Oficial JustPokédex -->
+                <div class="sell-confirm-title" style="background:linear-gradient(180deg,#e8403d 0%,#b91f27 55%,#8e141c 100%);border-bottom:3px solid #151515;padding:10px 16px;font-size:15px;font-weight:800;color:#ffffff;display:flex;align-items:center;gap:10px;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
+                    <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(to bottom,#f34848 0%,#f34848 43%,#151515 43%,#151515 57%,#f7f7f7 57%);border:2px solid #171717;position:relative;flex:none;">
+                        <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:6px;height:6px;border:1.5px solid #171717;border-radius:50%;background:#fff;"></span>
+                    </div>
+                    <span style="font-size:15px;letter-spacing:0.3px;color:#fff;">JustPokédex <span style="font-size:13px;color:#fcd34d;font-weight:700;margin-left:4px;">· Loja do Mark</span></span>
+                    
+                    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+                        <button class="mark-tab mark-tab-comprar active" type="button" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);transition:all 0.15s ease;">🛒 Comprar</button>
+                        <button class="mark-tab mark-tab-vender" type="button" style="background:#171b23;color:#94a3b8;border:1px solid #273546;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer;transition:all 0.15s ease;">💰 Vender</button>
+                        <button class="mark-tab mark-tab-pokemon" type="button" style="background:#171b23;color:#94a3b8;border:1px solid #273546;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer;transition:all 0.15s ease;">🐾 Pokémon</button>
+                        <button class="mark-close-btn" type="button" style="background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;font-size:18px;cursor:pointer;margin-left:6px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
+                    </div>
+                </div>
+
+                <!-- Sub-barra Saldo -->
+                <div style="background:#141924;border-bottom:1px solid #212c3e;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">
+                    <div style="font-size:13px;color:#fcd34d;font-weight:800;background:#0b0e17;border:1px solid #28374d;padding:4px 12px;border-radius:6px;display:flex;align-items:center;gap:6px;">
+                        <span>💲 Saldo:</span> <span style="color:#4ade80;">$ <span class="mark-gold-val">...</span></span>
+                    </div>
+                </div>
+
+                <!-- Corpo da Modal -->
+                <div class="sell-confirm-body" style="padding:16px;overflow-y:auto;flex:1;background:#0c121d;display:flex;flex-direction:column;gap:12px;">
+                    <!-- Aba Comprar -->
+                    <div class="mark-view mark-view-comprar" style="display:flex;flex-direction:column;gap:12px;">
+                        <div style="background:#121722;border:1px solid #212c3d;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;">
+                            <span style="font-size:12px;color:#f1c644;font-weight:800;">Quantidade:</span>
+                            <input class="mark-qty-input" type="number" value="1" min="1" max="9999" style="width:70px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:5px 8px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:800;">
+                            <input class="mark-qty-range" type="range" value="1" min="1" max="100" style="flex:1;accent-color:#e8403d;cursor:pointer;">
+                        </div>
+                        <div class="mark-items-list" style="display:flex;flex-direction:column;gap:8px;max-height:370px;overflow-y:auto;padding-right:4px;">
+                            <div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Carregando loja do Mark...</div>
+                        </div>
+                    </div>
+
+                    <!-- Aba Vender Itens -->
+                    <div class="mark-view mark-view-vender" style="display:none;flex-direction:column;gap:12px;">
+                        <div style="background:#121722;border:1px solid #212c3d;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;flex:none;">
+                            <span style="color:#cbd5e1;font-size:12px;font-weight:700;">Itens no Inventário:</span>
+                            <button class="mark-refresh-inv-btn" style="background:#171b23;color:#63b3ed;border:1px solid #273546;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;">↻ Atualizar</button>
+                        </div>
+
+                        <!-- Lista de Itens Rolável -->
+                        <div class="mark-inv-list" style="display:flex;flex-direction:column;gap:8px;max-height:370px;overflow-y:auto;padding-right:4px;">
+                            <div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Carregando inventário...</div>
+                        </div>
+
+                        <!-- Barra de Ações em Lote Fixa no Rodapé -->
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#141924;border:1px solid #212c3e;border-radius:8px;margin-top:auto;flex:none;position:sticky;bottom:0;z-index:10;box-shadow:0 -4px 12px rgba(0,0,0,0.5);">
+                            <label style="display:flex;align-items:center;gap:8px;color:#f8fafc;font-size:12px;font-weight:800;cursor:pointer;">
+                                <input class="inv-select-all-cb" type="checkbox" style="width:16px;height:16px;accent-color:#e53935;cursor:pointer;">
+                                Selecionar tudo
+                            </label>
+                            <button class="inv-batch-sell-btn" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:7px 20px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);">
+                                Vender Selecionados
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Aba Vender Pokémon -->
+                    <div class="mark-view mark-view-pokemon" style="display:none;flex-direction:column;gap:12px;">
+                        <div style="background:#121722;border:1px solid #212c3d;border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:10px;flex:none;">
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:#f1c644;font-weight:800;">
+                                    <span>IV:</span>
+                                    <input class="poke-filter-iv-min" type="number" placeholder="de" style="width:55px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 6px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:700;">
+                                    <span style="color:#94a3b8;">-</span>
+                                    <input class="poke-filter-iv-max" type="number" placeholder="até" style="width:55px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 6px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:700;">
+                                </div>
+
+                                <div class="poke-rarity-pills" style="display:flex;gap:5px;flex-wrap:wrap;margin-left:auto;"></div>
+                                <button class="mark-refresh-pokes-btn" style="background:#171b23;color:#63b3ed;border:1px solid #273546;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;">↻ Atualizar</button>
+                            </div>
+                        </div>
+
+                        <!-- Lista de Pokémon Rolável -->
+                        <div class="mark-pokes-list" style="display:flex;flex-direction:column;gap:8px;max-height:370px;overflow-y:auto;padding-right:4px;">
+                            <div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Carregando Pokémon...</div>
+                        </div>
+
+                        <!-- Barra de Ações em Lote Fixa no Rodapé -->
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#141924;border:1px solid #212c3e;border-radius:8px;margin-top:auto;flex:none;position:sticky;bottom:0;z-index:10;box-shadow:0 -4px 12px rgba(0,0,0,0.5);">
+                            <label style="display:flex;align-items:center;gap:8px;color:#f8fafc;font-size:12px;font-weight:800;cursor:pointer;">
+                                <input class="poke-select-all-cb" type="checkbox" style="width:16px;height:16px;accent-color:#e53935;cursor:pointer;">
+                                Selecionar tudo
+                            </label>
+                            <button class="poke-batch-sell-btn" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:7px 20px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);">
+                                Vender Selecionados
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rodapé Oficial JustPokédex -->
+                <div style="background:#070a11;border-top:1px solid #1c2637;padding:8px 16px;text-align:center;font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:0.3px;">
+                    Crédito para funcionalidade do desjunior
+                </div>
+            </div>`;
+
+        document.body.appendChild(backdrop);
+
+        const close = () => backdrop.remove();
+        backdrop.querySelector(".mark-close-btn").addEventListener("click", close);
+        backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
+
+        const tabComprar = backdrop.querySelector(".mark-tab-comprar");
+        const tabVender = backdrop.querySelector(".mark-tab-vender");
+        const tabPokemon = backdrop.querySelector(".mark-tab-pokemon");
+
+        const viewComprar = backdrop.querySelector(".mark-view-comprar");
+        const viewVender = backdrop.querySelector(".mark-view-vender");
+        const viewPokemon = backdrop.querySelector(".mark-view-pokemon");
+
+        function switchTab(activeTabBtn, activeView) {
+            [tabComprar, tabVender, tabPokemon].forEach(btn => {
+                btn.style.background = "#171b23";
+                btn.style.color = "#94a3b8";
+                btn.style.border = "1px solid #273546";
+                btn.style.boxShadow = "none";
+            });
+            [viewComprar, viewVender, viewPokemon].forEach(v => {
+                v.style.display = "none";
+            });
+
+            activeTabBtn.style.background = "linear-gradient(180deg,#e53935 0%,#c62828 100%)";
+            activeTabBtn.style.color = "#fff";
+            activeTabBtn.style.border = "1px solid #ff7961";
+            activeTabBtn.style.boxShadow = "0 2px 6px rgba(229,57,53,0.4)";
+            activeView.style.display = "flex";
+        }
+
+        tabComprar.addEventListener("click", () => switchTab(tabComprar, viewComprar));
+        tabVender.addEventListener("click", () => {
+            switchTab(tabVender, viewVender);
+            loadVenderItems();
+        });
+        tabPokemon.addEventListener("click", () => {
+            switchTab(tabPokemon, viewPokemon);
+            loadPokemonList();
+        });
+
+        backdrop.querySelector(".mark-refresh-inv-btn")?.addEventListener("click", loadVenderItems);
+        backdrop.querySelector(".mark-refresh-pokes-btn")?.addEventListener("click", loadPokemonList);
+
+        const qtyInput = backdrop.querySelector(".mark-qty-input");
+        const qtyRange = backdrop.querySelector(".mark-qty-range");
+        qtyInput.addEventListener("input", () => { qtyRange.value = qtyInput.value; });
+        qtyRange.addEventListener("input", () => { qtyInput.value = qtyRange.value; });
+
+        // Gestão de Trava de Itens (Item Lock System)
+        const SCRIPT_LOCKED_ITEMS_KEY = "justpokedex_locked_items";
+        function getLockedItemsSet() {
+            try {
+                const raw = localStorage.getItem(SCRIPT_LOCKED_ITEMS_KEY);
+                return new Set(raw ? JSON.parse(raw) : []);
+            } catch (e) {
+                return new Set();
+            }
+        }
+        function saveLockedItemsSet(set) {
+            try {
+                localStorage.setItem(SCRIPT_LOCKED_ITEMS_KEY, JSON.stringify(Array.from(set)));
+            } catch (e) { }
+        }
+
+        function getItemIconUrl(item) {
+            if (item.icon && !item.icon.includes("undefined")) return item.icon;
+            if (item.image && !item.image.includes("undefined")) return item.image;
+            if (item.iconUrl && !item.iconUrl.includes("undefined")) return item.iconUrl;
+            const id = item.itemId || item.id;
+            if (id) return `/assets/items/${id}.png`;
+            return "/assets/markitems/pokeball.png";
+        }
+
+        async function loadVenderItems() {
+            const invListEl = backdrop.querySelector(".mark-inv-list");
+            const selectAllCb = backdrop.querySelector(".inv-select-all-cb");
+            const batchSellBtn = backdrop.querySelector(".inv-batch-sell-btn");
+
+            invListEl.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Carregando inventário...</div>`;
+
+            try {
+                let items = await readSellableInventoryFromDOM();
+                if (!items || items.length === 0) {
+                    const rawInv = await requestGameEvent("inventory", "inv-get");
+                    if (Array.isArray(rawInv)) {
+                        items = rawInv.map(it => ({
+                            id: String(it.itemId),
+                            itemId: String(it.itemId),
+                            icon: it.icon || it.image || `/assets/items/${it.itemId}.png`,
+                            name: it.name || `Item ${it.itemId}`,
+                            qty: it.quantity || 1,
+                            quantity: it.quantity || 1,
+                            npcPrice: 10
+                        }));
+                    }
+                }
+
+                if (!items || items.length === 0) {
+                    invListEl.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Nenhum item vendável no inventário.</div>`;
+                    if (selectAllCb) selectAllCb.checked = false;
+                    return;
+                }
+
+                invListEl.innerHTML = "";
+                const lockedSet = getLockedItemsSet();
+
+                items.forEach(item => {
+                    const row = document.createElement("div");
+                    const itemIdStr = String(item.itemId || item.id);
+                    const isLocked = Boolean(item.locked || item.isLocked || lockedSet.has(itemIdStr));
+                    row.style.cssText = `display:flex;align-items:center;justify-content:space-between;background:#141924;border:1px solid #212c3e;border-radius:8px;padding:8px 14px;opacity:${isLocked ? '0.6' : '1'};`;
+
+                    const name = item.name || `Item ${item.itemId}`;
+                    const qty = item.qty || item.quantity || 1;
+                    const price = item.npcPrice || 10;
+                    const iconUrl = getItemIconUrl(item);
+
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <input class="inv-item-cb" type="checkbox" data-id="${itemIdStr}" ${isLocked ? 'disabled' : ''} style="width:16px;height:16px;accent-color:#e53935;cursor:${isLocked ? 'not-allowed' : 'pointer'};">
+                            <div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+                                <img src="${iconUrl}" data-id="${itemIdStr}" style="width:32px;height:32px;object-fit:contain;" onerror="if(this.src!='/assets/markitems/pokeball.png'){this.src='/assets/markitems/pokeball.png';}">
+                            </div>
+                            <div>
+                                <div style="color:#f8fafc;font-weight:800;font-size:13px;display:flex;align-items:center;gap:6px;">
+                                    ${name} <span class="inv-locked-tag" style="color:#ef4444;font-size:10px;font-weight:bold;display:${isLocked ? 'inline' : 'none'};">[TRAVADO]</span>
+                                </div>
+                                <div style="color:#94a3b8;font-size:11px;margin-top:2px;">
+                                    Possui: <b style="color:#fff;">${qty}</b> | Preço NPC: <span style="color:#4ade80;font-weight:800;">$ ${price}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <input class="sell-qty-input" type="number" value="1" min="1" max="${qty}" ${isLocked ? 'disabled' : ''} style="width:55px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:5px;color:#fff;font-weight:800;font-size:12px;outline:none;text-align:center;">
+                            <button class="sell-item-btn" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);" ${isLocked ? 'disabled' : ''}>Vender</button>
+                            <button class="inv-lock-btn" type="button" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;" title="${isLocked ? 'Bloqueado (clique para desbloquear)' : 'Desbloqueado (clique para bloquear)'}">${isLocked ? '🔒' : '🔓'}</button>
+                        </div>`;
+
+                    const sellInput = row.querySelector(".sell-qty-input");
+                    const sellBtn = row.querySelector(".sell-item-btn");
+                    const lockBtn = row.querySelector(".inv-lock-btn");
+
+                    sellBtn.addEventListener("click", async () => {
+                        const sellQty = parseInt(sellInput.value, 10) || 1;
+                        sellBtn.disabled = true;
+                        sellBtn.textContent = "Vendendo...";
+                        try {
+                            let res = null;
+                            try {
+                                res = await gameApiRequest("/api/game/shop/sell", {
+                                    method: "POST",
+                                    body: JSON.stringify({ itemId: item.itemId, quantity: sellQty })
+                                });
+                            } catch (e) {
+                                sendGameMessage({ type: "sell-item", itemId: item.itemId, quantity: sellQty });
+                                sendGameMessage({ type: "sell", itemId: item.itemId, quantity: sellQty });
+                            }
+                            alert(`Item vendido com sucesso!\n${sellQty}x ${name}`);
+                            loadVenderItems();
+                        } catch (err) {
+                            alert("Erro ao vender: " + err.message);
+                        } finally {
+                            sellBtn.disabled = false;
+                            sellBtn.textContent = "Vender";
+                        }
+                    });
+
+                    lockBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const currentSet = getLockedItemsSet();
+                        const newLockedState = !currentSet.has(itemIdStr);
+
+                        if (newLockedState) {
+                            currentSet.add(itemIdStr);
+                        } else {
+                            currentSet.delete(itemIdStr);
+                        }
+                        saveLockedItemsSet(currentSet);
+
+                        sendGameMessage({ type: "item-lock", itemId: item.itemId, locked: newLockedState });
+
+                        const cb = row.querySelector(".inv-item-cb");
+                        if (cb) {
+                            cb.disabled = newLockedState;
+                            cb.style.cursor = newLockedState ? 'not-allowed' : 'pointer';
+                            if (newLockedState) cb.checked = false;
+                        }
+                        if (sellInput) sellInput.disabled = newLockedState;
+                        if (sellBtn) sellBtn.disabled = newLockedState;
+
+                        lockBtn.textContent = newLockedState ? "🔒" : "🔓";
+                        lockBtn.title = newLockedState ? "Bloqueado (clique para desbloquear)" : "Desbloqueado (clique para bloquear)";
+                        row.style.opacity = newLockedState ? "0.6" : "1";
+
+                        const tagEl = row.querySelector(".inv-locked-tag");
+                        if (tagEl) {
+                            tagEl.style.display = newLockedState ? "inline" : "none";
+                        }
+                    });
+
+                    invListEl.appendChild(row);
+                });
+
+                if (selectAllCb) {
+                    selectAllCb.checked = false;
+                    selectAllCb.onclick = () => {
+                        const checkboxes = invListEl.querySelectorAll(".inv-item-cb:not([disabled])");
+                        checkboxes.forEach(cb => cb.checked = selectAllCb.checked);
+                    };
+                }
+
+                if (batchSellBtn) {
+                    batchSellBtn.onclick = async () => {
+                        const selectedCbs = Array.from(invListEl.querySelectorAll(".inv-item-cb:checked:not([disabled])"));
+                        if (selectedCbs.length === 0) {
+                            alert("Selecione ao menos um item destravado para vender.");
+                            return;
+                        }
+                        if (!confirm(`Deseja realmente vender os ${selectedCbs.length} tipo(s) de item(ns) selecionado(s)?`)) return;
+
+                        batchSellBtn.disabled = true;
+                        batchSellBtn.textContent = "Vendendo...";
+
+                        let successCount = 0;
+                        for (const cb of selectedCbs) {
+                            const itemId = cb.getAttribute("data-id");
+                            const row = cb.closest("div[style*='display:flex']");
+                            const qtyInput = row ? row.querySelector(".sell-qty-input") : null;
+                            const sellQty = parseInt(qtyInput?.value, 10) || 1;
+
+                            try {
+                                try {
+                                    await gameApiRequest("/api/game/shop/sell", {
+                                        method: "POST",
+                                        body: JSON.stringify({ itemId, quantity: sellQty })
+                                    });
+                                } catch (e) {
+                                    sendGameMessage({ type: "sell-item", itemId, quantity: sellQty });
+                                    sendGameMessage({ type: "sell", itemId, quantity: sellQty });
+                                }
+                                successCount++;
+                            } catch (e) { }
+                        }
+
+                        alert(`Venda concluída! ${successCount} tipo(s) de item(ns) vendido(s).`);
+                        batchSellBtn.disabled = false;
+                        batchSellBtn.textContent = "Vender Selecionados";
+                        loadVenderItems();
+                    };
+                }
+            } catch (err) {
+                invListEl.innerHTML = `<div style="color:#ef4444;text-align:center;padding:24px;font-size:13px;">Erro ao carregar inventário: ${err.message}</div>`;
+            }
+        }
+
+        // Raridades e Filtros da Aba de Pokémon
+        const RARIDADE_LISTA = [
+            { id: "fraca", nome: "Fraca", cor: "#9e9e9e" },
+            { id: "comum", nome: "Comum", cor: "#4ade80" },
+            { id: "incomum", nome: "Incomum", cor: "#22c55e" },
+            { id: "rara", nome: "Rara", cor: "#3b82f6" },
+            { id: "epica", nome: "Épica", cor: "#c084fc" },
+            { id: "lendaria", nome: "Lendária", cor: "#fbbf24" },
+            { id: "mitica", nome: "Mítica", cor: "#f43f5e" },
+            { id: "ancia", nome: "Anciã", cor: "#a16207" },
+            { id: "divina", nome: "Divina", cor: "#38bdf8" }
+        ];
+        let raridadesSelecionadas = new Set(RARIDADE_LISTA.map(r => r.id));
+
+        // Gestão de Trava de Pokémon (Lock System)
+        const SCRIPT_LOCKED_POKES_KEY = "justpokedex_locked_pokes";
+        function getLockedPokesSet() {
+            try {
+                const raw = localStorage.getItem(SCRIPT_LOCKED_POKES_KEY);
+                return new Set(raw ? JSON.parse(raw) : []);
+            } catch (e) {
+                return new Set();
+            }
+        }
+        function saveLockedPokesSet(set) {
+            try {
+                localStorage.setItem(SCRIPT_LOCKED_POKES_KEY, JSON.stringify(Array.from(set)));
+            } catch (e) { }
+        }
+
+        function formatPokeRowData(poke) {
+            if (!poke) return null;
+            const speciesId = poke.speciesId || poke.species || poke.pokeId || poke.pokemonId || poke.id;
+            const name = poke.name || poke.speciesName || "Pokémon";
+            const level = poke.level || poke.lvl || poke.levelNum || 1;
+            const shiny = Boolean(poke.shiny || poke.isShiny);
+
+            let ivTotal = 0;
+            if (typeof poke.ivTotal === "number") ivTotal = poke.ivTotal;
+            else if (typeof poke.iv === "number") ivTotal = poke.iv;
+            else if (typeof poke.totalIv === "number") ivTotal = poke.totalIv;
+            else if (poke.ivs && typeof poke.ivs === "object") {
+                ivTotal = Object.values(poke.ivs).reduce((a, b) => a + (Number(b) || 0), 0);
+            } else if (poke.iv && typeof poke.iv === "object") {
+                ivTotal = Object.values(poke.iv).reduce((a, b) => a + (Number(b) || 0), 0);
+            }
+
+            let rarityName = "";
+            let rarityColor = "#4ade80";
+
+            // 1. Tenta ler nome de raridade ou tier se veio como string válida
+            const strRaw = String(poke.rarity || poke.raridade || poke.qualityTier || poke.tier || poke.qualityName || "").trim();
+            if (strRaw && isNaN(Number(strRaw))) {
+                const normStr = strRaw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const matched = RARIDADE_LISTA.find(r => r.id === normStr || normStr.includes(r.id) || r.id.includes(normStr));
+                if (matched) {
+                    rarityName = matched.nome;
+                    rarityColor = matched.cor;
+                } else {
+                    rarityName = strRaw;
+                }
+            }
+
+            // 2. Se não veio nome, lê o multiplicador numérico de qualidade (ex: 1.35) e calcula a etiqueta oficial
+            const qualNum = Number(poke.quality ?? poke.qualidade ?? poke.q ?? poke.multiplicadorQualidade ?? poke.multiplier ?? poke.mult ?? 0);
+            if (!rarityName && qualNum > 0) {
+                if (typeof obterEtiquetaQualidade === "function") {
+                    const et = obterEtiquetaQualidade(qualNum);
+                    rarityName = et.label;
+                    rarityColor = et.color;
+                } else {
+                    if (qualNum < 1.0) { rarityName = "Fraca"; rarityColor = "#9e9e9e"; }
+                    else if (qualNum < 1.1) { rarityName = "Comum"; rarityColor = "#4ade80"; }
+                    else if (qualNum < 1.3) { rarityName = "Incomum"; rarityColor = "#22c55e"; }
+                    else if (qualNum < 1.5) { rarityName = "Rara"; rarityColor = "#3b82f6"; }
+                    else if (qualNum < 1.7) { rarityName = "Épica"; rarityColor = "#c084fc"; }
+                    else if (qualNum < 2.0) { rarityName = "Lendária"; rarityColor = "#fbbf24"; }
+                    else if (qualNum < 3.0) { rarityName = "Mítica"; rarityColor = "#f43f5e"; }
+                    else if (qualNum < 4.0) { rarityName = "Anciã"; rarityColor = "#a16207"; }
+                    else { rarityName = "Divina"; rarityColor = "#38bdf8"; }
+                }
+            }
+
+            // 3. Fallback: Dicionário ou padrão Comum
+            if (!rarityName) {
+                if (typeof obterInfoPokemon === "function") {
+                    const info = obterInfoPokemon(name);
+                    const infoRarity = String(info?.qualidade || info?.raridade || "").trim();
+                    if (infoRarity) {
+                        const normInfo = infoRarity.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                        const matchedInfo = RARIDADE_LISTA.find(r => r.id === normInfo || normInfo.includes(r.id));
+                        if (matchedInfo) {
+                            rarityName = matchedInfo.nome;
+                            rarityColor = matchedInfo.cor;
+                        }
+                    }
+                }
+            }
+
+            if (!rarityName) {
+                rarityName = "Comum";
+                rarityColor = "#4ade80";
+            }
+
+            const rarityRaw = rarityName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const price = poke.price || poke.priceGold || poke.npcPrice || poke.sellPrice || (level * 100 + ivTotal * 10) || 3000;
+
+            let spriteUrl = "";
+            let fallbackUrl = "";
+            if (typeof obterUrlsSprite === "function" && speciesId) {
+                const urls = obterUrlsSprite(speciesId, shiny);
+                spriteUrl = urls?.anim || "";
+                fallbackUrl = urls?.still || "";
+            }
+            if (!spriteUrl) {
+                spriteUrl = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${speciesId || 1}.png`;
+            }
+
+            const scriptLockedSet = getLockedPokesSet();
+            const pokeIdStr = String(poke.id || speciesId);
+            const isLocked = Boolean(poke.locked || poke.isLocked || poke.lock || scriptLockedSet.has(pokeIdStr));
+
+            return {
+                id: poke.id || speciesId,
+                speciesId,
+                name,
+                level,
+                shiny,
+                ivTotal,
+                rarityRaw,
+                rarityName,
+                rarityColor,
+                price,
+                locked: isLocked,
+                spriteUrl,
+                fallbackUrl
+            };
+        }
+
+        async function loadPokemonList() {
+            const pokesListEl = backdrop.querySelector(".mark-pokes-list");
+            const rarityPillsEl = backdrop.querySelector(".poke-rarity-pills");
+            const ivMinInput = backdrop.querySelector(".poke-filter-iv-min");
+            const ivMaxInput = backdrop.querySelector(".poke-filter-iv-max");
+            const selectAllCb = backdrop.querySelector(".poke-select-all-cb");
+            const batchSellBtn = backdrop.querySelector(".poke-batch-sell-btn");
+
+            pokesListEl.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Carregando Pokémon...</div>`;
+
+            let rawList = (Array.isArray(latestPokemon) && latestPokemon.length > 0) ? latestPokemon : [];
+            if (rawList.length === 0) {
+                try {
+                    const rawPokes = await requestGameEvent("pokes", "pokes-get", latestPokemon, 2500).catch(() => []);
+                    rawList = Array.isArray(rawPokes) ? rawPokes : (rawPokes?.list || rawPokes?.pokes || latestPokemon || []);
+                } catch (err) {
+                    rawList = latestPokemon || [];
+                }
+            }
+
+            function renderFilteredPokes() {
+                const ivMinStr = ivMinInput?.value?.trim() || "";
+                const ivMaxStr = ivMaxInput?.value?.trim() || "";
+                const ivMin = ivMinStr !== "" ? parseInt(ivMinStr, 10) : null;
+                const ivMax = ivMaxStr !== "" ? parseInt(ivMaxStr, 10) : null;
+
+                const formattedList = rawList.map(formatPokeRowData).filter(Boolean);
+                const todasSelecionadas = raridadesSelecionadas.size === RARIDADE_LISTA.length || raridadesSelecionadas.size === 0;
+
+                const filtered = formattedList.filter(poke => {
+                    if (ivMin !== null && !isNaN(ivMin) && poke.ivTotal < ivMin) return false;
+                    if (ivMax !== null && !isNaN(ivMax) && poke.ivTotal > ivMax) return false;
+
+                    if (!todasSelecionadas) {
+                        const matchesRarity = Array.from(raridadesSelecionadas).some(r => poke.rarityRaw.includes(r) || r.includes(poke.rarityRaw));
+                        if (!matchesRarity) return false;
+                    }
+                    return true;
+                });
+
+                if (filtered.length === 0) {
+                    pokesListEl.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;font-size:13px;">Nenhum Pokémon encontrado com os filtros selecionados.</div>`;
+                    return;
+                }
+
+                pokesListEl.innerHTML = "";
+                filtered.forEach(formatted => {
+                    const row = document.createElement("div");
+                    const isLocked = formatted.locked;
+                    row.style.cssText = `display:flex;align-items:center;justify-content:space-between;background:#141924;border:1px solid #212c3e;border-radius:8px;padding:8px 14px;opacity:${isLocked ? '0.6' : '1'};`;
+
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <input class="poke-item-cb" type="checkbox" data-id="${formatted.id}" ${isLocked ? 'disabled' : ''} style="width:16px;height:16px;accent-color:#e53935;cursor:${isLocked ? 'not-allowed' : 'pointer'};">
+                            <div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+                                <img src="${formatted.spriteUrl}" data-fallback="${formatted.fallbackUrl}" style="width:36px;height:36px;object-fit:contain;" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback='';}">
+                            </div>
+                            <div>
+                                <div style="color:#f8fafc;font-weight:800;font-size:13px;display:flex;align-items:center;gap:6px;">
+                                    ${formatted.name} ${formatted.shiny ? '<span style="color:#fcd34d;font-size:11px;">✨</span>' : ''} <span class="poke-locked-tag" style="color:#ef4444;font-size:10px;font-weight:bold;display:${isLocked ? 'inline' : 'none'};">[TRAVADO]</span>
+                                </div>
+                                <div style="color:#94a3b8;font-size:11px;margin-top:2px;">
+                                    Nv ${formatted.level} · <span style="color:${formatted.rarityColor};font-weight:800;">${formatted.rarityName}</span> · IV ${formatted.ivTotal}
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:14px;">
+                            <div style="color:#4ade80;font-weight:800;font-size:13px;">$ ${Number(formatted.price).toLocaleString("pt-BR")}</div>
+                            <button class="poke-lock-btn" type="button" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;" title="${isLocked ? 'Bloqueado (clique para desbloquear)' : 'Desbloqueado (clique para bloquear)'}">${isLocked ? '🔒' : '🔓'}</button>
+                        </div>`;
+
+                    const lockBtn = row.querySelector(".poke-lock-btn");
+                    lockBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const currentSet = getLockedPokesSet();
+                        const pokeIdStr = String(formatted.id);
+                        const newLockedState = !formatted.locked;
+
+                        formatted.locked = newLockedState;
+                        if (newLockedState) {
+                            currentSet.add(pokeIdStr);
+                        } else {
+                            currentSet.delete(pokeIdStr);
+                        }
+                        saveLockedPokesSet(currentSet);
+
+                        sendGameMessage({ type: "poke-lock", pokeId: formatted.id, locked: newLockedState });
+                        sendGameMessage({ type: "lock-poke", pokeId: formatted.id, locked: newLockedState });
+
+                        const cb = row.querySelector(".poke-item-cb");
+                        if (cb) {
+                            cb.disabled = newLockedState;
+                            cb.style.cursor = newLockedState ? 'not-allowed' : 'pointer';
+                            if (newLockedState) cb.checked = false;
+                        }
+                        lockBtn.textContent = newLockedState ? "🔒" : "🔓";
+                        lockBtn.title = newLockedState ? "Bloqueado (clique para desbloquear)" : "Desbloqueado (clique para bloquear)";
+                        row.style.opacity = newLockedState ? "0.6" : "1";
+
+                        const tagEl = row.querySelector(".poke-locked-tag");
+                        if (tagEl) {
+                            tagEl.style.display = newLockedState ? "inline" : "none";
+                        }
+                    });
+
+                    pokesListEl.appendChild(row);
+                });
+
+                if (selectAllCb) selectAllCb.checked = false;
+            }
+
+            // Renderiza e vincula as pills de raridade
+            if (rarityPillsEl) {
+                rarityPillsEl.innerHTML = "";
+                RARIDADE_LISTA.forEach(r => {
+                    const pill = document.createElement("button");
+                    pill.type = "button";
+                    const isSelected = raridadesSelecionadas.has(r.id);
+                    pill.style.cssText = isSelected ?
+                        `background:${r.cor}22;color:${r.cor};border:1px solid ${r.cor};border-radius:12px;padding:2px 8px;font-size:11px;font-weight:800;cursor:pointer;` :
+                        `background:#171b23;color:#64748b;border:1px solid #273546;border-radius:12px;padding:2px 8px;font-size:11px;font-weight:800;cursor:pointer;`;
+                    pill.textContent = r.nome;
+
+                    pill.addEventListener("click", () => {
+                        if (raridadesSelecionadas.has(r.id)) {
+                            raridadesSelecionadas.delete(r.id);
+                            pill.style.background = "#171b23";
+                            pill.style.color = "#64748b";
+                            pill.style.border = "1px solid #273546";
+                        } else {
+                            raridadesSelecionadas.add(r.id);
+                            pill.style.background = `${r.cor}22`;
+                            pill.style.color = r.cor;
+                            pill.style.border = `1px solid ${r.cor}`;
+                        }
+                        renderFilteredPokes();
+                    });
+                    rarityPillsEl.appendChild(pill);
+                });
+            }
+
+            if (ivMinInput) ivMinInput.oninput = renderFilteredPokes;
+            if (ivMaxInput) ivMaxInput.oninput = renderFilteredPokes;
+
+            renderFilteredPokes();
+
+            if (selectAllCb) {
+                selectAllCb.onclick = () => {
+                    const checkboxes = pokesListEl.querySelectorAll(".poke-item-cb:not([disabled])");
+                    checkboxes.forEach(cb => cb.checked = selectAllCb.checked);
+                };
+            }
+
+            if (batchSellBtn) {
+                batchSellBtn.onclick = async () => {
+                    const selectedCbs = Array.from(pokesListEl.querySelectorAll(".poke-item-cb:checked:not([disabled])"));
+                    if (selectedCbs.length === 0) {
+                        alert("Selecione ao menos um Pokémon destravado para vender.");
+                        return;
+                    }
+                    if (!confirm(`Deseja realmente vender ${selectedCbs.length} Pokémon selecionados?`)) return;
+
+                    batchSellBtn.disabled = true;
+                    batchSellBtn.textContent = "Vendendo...";
+
+                    let successCount = 0;
+                    for (const cb of selectedCbs) {
+                        const pokeId = cb.getAttribute("data-id");
+                        try {
+                            try {
+                                await gameApiRequest("/api/game/shop/sell-pokemon", {
+                                    method: "POST",
+                                    body: JSON.stringify({ pokeId })
+                                });
+                            } catch (e) {
+                                sendGameMessage({ type: "sell-poke", pokeId });
+                            }
+                            successCount++;
+                        } catch (e) { }
+                    }
+
+                    alert(`Venda concluída! ${successCount} Pokémon vendidos.`);
+                    batchSellBtn.disabled = false;
+                    batchSellBtn.textContent = "Vender Selecionados";
+                    loadPokemonList();
+                };
+            }
+        }
+
+        try {
+            let shopData = null;
+            try { shopData = await gameApiRequest("/api/game/shop"); } catch (e) { }
+            if (!shopData) try { shopData = await gameApiRequest("/game/shop"); } catch (e) { }
+            if (!shopData) try { shopData = await gameApiRequest("/api/game/balls"); } catch (e) { }
+
+            const goldVal = shopData?.gold ?? 0;
+            backdrop.querySelector(".mark-gold-val").textContent = Number(goldVal).toLocaleString("pt-BR");
+
+            const DEFAULT_SHOP_CATALOG = [
+                { id: 1, name: "Poké Ball", priceGold: 5, catchRate: 1, iconUrl: "/assets/markitems/pokeball.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png" },
+                { id: 2, name: "Great Ball", priceGold: 20, catchRate: 2, iconUrl: "/assets/markitems/greatball.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/great-ball.png" },
+                { id: 3, name: "Super Ball", priceGold: 50, catchRate: 3, iconUrl: "/assets/markitems/superball.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/ultra-ball.png" },
+                { id: 4, name: "Ultra Ball", priceGold: 130, catchRate: 4, iconUrl: "/assets/markitems/ultraball.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/master-ball.png" },
+                { id: 5, name: "Small Potion", priceGold: 5, iconUrl: "/assets/markitems/smallpotion.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/potion.png" },
+                { id: 6, name: "Great Potion", priceGold: 10, iconUrl: "/assets/markitems/greatpotion.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/super-potion.png" },
+                { id: 7, name: "Ultra Potion", priceGold: 22, iconUrl: "/assets/markitems/ultrapotion.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/hyper-potion.png" },
+                { id: 8, name: "Revive", priceGold: 40, iconUrl: "/assets/markitems/revive.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/revive.png" },
+                { id: 9, name: "Hyper Potion", priceGold: 55, iconUrl: "/assets/markitems/hyperpotion.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/max-potion.png" },
+                { id: 10, name: "Ultimate Potion", priceGold: 135, iconUrl: "/assets/markitems/ultimatepotion.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/full-restore.png" },
+                { id: 11, name: "Max Revive", priceGold: 350, iconUrl: "/assets/markitems/maxrevive.png", fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/max-revive.png" }
+            ];
+
+            let balls = DEFAULT_SHOP_CATALOG;
+            if (shopData) {
+                const apiItems = shopData.catalog || shopData.items || shopData.balls;
+                if (Array.isArray(apiItems) && apiItems.length > 0) {
+                    const apiMap = new Map(apiItems.map(it => [String(it.name || "").toLowerCase(), it]));
+                    balls = DEFAULT_SHOP_CATALOG.map(defItem => {
+                        const fromApi = apiMap.get(defItem.name.toLowerCase());
+                        if (fromApi) {
+                            return {
+                                ...defItem,
+                                ...fromApi,
+                                id: fromApi.id || defItem.id,
+                                priceGold: fromApi.priceGold || fromApi.price || defItem.priceGold,
+                                iconUrl: fromApi.iconUrl || fromApi.icon || fromApi.image || defItem.iconUrl
+                            };
+                        }
+                        return defItem;
+                    });
+
+                    apiItems.forEach(apiIt => {
+                        const exists = balls.some(b => String(b.name).toLowerCase() === String(apiIt.name).toLowerCase());
+                        if (!exists) {
+                            balls.push({
+                                id: apiIt.id || apiIt.itemId,
+                                name: apiIt.name || `Item ${apiIt.id}`,
+                                priceGold: apiIt.priceGold || apiIt.price || 10,
+                                iconUrl: apiIt.iconUrl || apiIt.icon || apiIt.image || "/assets/markitems/pokeball.png",
+                                fallbackUrl: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png"
+                            });
+                        }
+                    });
+                }
+            }
+
+            const listEl = backdrop.querySelector(".mark-items-list");
+            listEl.innerHTML = "";
+
+            function updateBuyPrices() {
+                const qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+                const priceBoxes = listEl.querySelectorAll(".mark-price-box");
+                priceBoxes.forEach(box => {
+                    const unitPrice = Number(box.getAttribute("data-unit-price")) || 0;
+                    const totalPrice = unitPrice * qty;
+                    const totalEl = box.querySelector(".mark-total-price");
+                    const unitEl = box.querySelector(".mark-unit-price");
+
+                    if (totalEl) totalEl.textContent = `$ ${totalPrice.toLocaleString("pt-BR")}`;
+                    if (unitEl) {
+                        unitEl.style.display = qty > 1 ? "block" : "none";
+                        unitEl.textContent = `($ ${unitPrice.toLocaleString("pt-BR")} un)`;
+                    }
+                });
+            }
+
+            const currentQty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+
+            balls.forEach(ball => {
+                const row = document.createElement("div");
+                row.style.cssText = "display:flex;align-items:center;justify-content:space-between;background:#141924;border:1px solid #212c3e;border-radius:8px;padding:8px 14px;";
+
+                const price = ball.priceGold || ball.price || 5;
+                const icon = ball.iconUrl || ball.icon || ball.image || "/assets/markitems/pokeball.png";
+                const fallback = ball.fallbackUrl || "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png";
+                const rateText = ball.catchRate || ball.rate ? `Eficiência ×${ball.catchRate || ball.rate}` : "";
+                const totalPrice = price * currentQty;
+
+                row.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+                            <img src="${icon}" data-fallback="${fallback}" style="width:32px;height:32px;object-fit:contain;" onerror="if(this.dataset.fallback){this.src=this.dataset.fallback;this.dataset.fallback='';}">
+                        </div>
+                        <div>
+                            <div style="color:#f8fafc;font-weight:800;font-size:13px;">${ball.name}</div>
+                            ${rateText ? `<div style="color:#94a3b8;font-size:11px;margin-top:1px;">${rateText}</div>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:14px;">
+                        <div class="mark-price-box" data-unit-price="${price}" style="text-align:right;">
+                            <div class="mark-total-price" style="color:#4ade80;font-weight:800;font-size:13px;">$ ${Number(totalPrice).toLocaleString("pt-BR")}</div>
+                            <div class="mark-unit-price" style="color:#94a3b8;font-size:10px;display:${currentQty > 1 ? 'block' : 'none'};">($ ${Number(price).toLocaleString("pt-BR")} un)</div>
+                        </div>
+                        <button class="mark-buy-btn" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:6px 16px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);">Comprar</button>
+                    </div>`;
+
+                const buyBtn = row.querySelector(".mark-buy-btn");
+                buyBtn.addEventListener("click", async () => {
+                    const quantity = parseInt(qtyInput.value, 10) || 1;
+                    buyBtn.disabled = true;
+                    buyBtn.textContent = "Comprando...";
+
+                    try {
+                        let res = null;
+                        const isBall = Boolean(ball.catchRate || String(ball.name || "").toLowerCase().includes("ball"));
+                        const itemId = ball.itemId || ball.id;
+
+                        if (isBall) {
+                            try {
+                                res = await gameApiRequest("/api/game/balls/buy", {
+                                    method: "POST",
+                                    body: JSON.stringify({ ballId: ball.id, quantity })
+                                });
+                                if (res && (res.error || (res.message && res.success === false) || (typeof res.message === "string" && res.message.includes("não está à venda")))) {
+                                    res = null;
+                                }
+                            } catch (e) { }
+                        }
+
+                        if (!res) {
+                            try {
+                                res = await gameApiRequest("/api/game/shop/buy", {
+                                    method: "POST",
+                                    body: JSON.stringify({ itemId, quantity })
+                                });
+                            } catch (e) { }
+                        }
+
+                        if (!res) {
+                            try {
+                                res = await gameApiRequest("/api/game/items/buy", {
+                                    method: "POST",
+                                    body: JSON.stringify({ itemId, quantity })
+                                });
+                            } catch (e) { }
+                        }
+
+                        if (!res) {
+                            sendGameMessage({ type: "buy-item", itemId, quantity });
+                            sendGameMessage({ type: "buy", itemId, quantity });
+                            sendGameMessage({ type: "shop-buy", itemId, quantity });
+                        }
+
+                        if (res && res.error) {
+                            throw new Error(res.error);
+                        }
+                        if (res && res.message && res.success === false) {
+                            throw new Error(res.message);
+                        }
+
+                        alert(`Compra efetuada com sucesso!\n+${quantity.toLocaleString("pt-BR")} ${ball.name}\n${res?.gold !== undefined ? 'Novo Saldo: $ ' + Number(res.gold).toLocaleString("pt-BR") : ''}`);
+                        if (res?.gold !== undefined) {
+                            backdrop.querySelector(".mark-gold-val").textContent = Number(res.gold).toLocaleString("pt-BR");
+                        } else {
+                            try {
+                                const newShop = await gameApiRequest("/api/game/shop");
+                                if (newShop?.gold !== undefined) {
+                                    backdrop.querySelector(".mark-gold-val").textContent = Number(newShop.gold).toLocaleString("pt-BR");
+                                }
+                            } catch (e) { }
+                        }
+                    } catch (err) {
+                        alert("Erro ao efetuar compra: " + err.message);
+                    } finally {
+                        buyBtn.disabled = false;
+                        buyBtn.textContent = "Comprar";
+                    }
+                });
+
+                listEl.appendChild(row);
+            });
+
+            qtyInput.oninput = () => {
+                qtyRange.value = qtyInput.value;
+                updateBuyPrices();
+            };
+            qtyRange.oninput = () => {
+                qtyInput.value = qtyRange.value;
+                updateBuyPrices();
+            };
+        } catch (err) {
+            backdrop.querySelector(".mark-items-list").innerHTML = `<div style="color:#ef4444;text-align:center;padding:20px;">Erro ao carregar Loja do Mark: ${err.message}</div>`;
+        }
+    }
+
+    function obterOuCriarMenuDockLojasGlobal() {
+        let menu = document.getElementById("dock-shops-menu-global");
+        if (!menu) {
+            menu = document.createElement("div");
+            menu.id = "dock-shops-menu-global";
+            menu.style.cssText = "display:none;position:fixed;background:#111823 !important;border:1px solid rgba(255,255,255,0.3) !important;border-radius:6px !important;box-shadow:0 12px 36px rgba(0,0,0,0.95) !important;padding:6px !important;z-index:9999999 !important;width:190px !important;box-sizing:border-box;";
+            document.body.appendChild(menu);
+
+            const addMenuItem = (icon, text, handler) => {
+                const itemBtn = document.createElement("button");
+                itemBtn.type = "button";
+                itemBtn.style.cssText = "width:100%;text-align:left;background:none;border:none;color:#eee;font-size:11.5px;font-weight:500;padding:6px 8px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:6px;";
+                itemBtn.onmouseover = () => itemBtn.style.background = "rgba(255,255,255,0.1)";
+                itemBtn.onmouseout = () => itemBtn.style.background = "transparent";
+                itemBtn.innerHTML = `<span>${icon}</span> <span>${text}</span>`;
+                itemBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    menu.style.display = "none";
+                    handler();
+                });
+                menu.appendChild(itemBtn);
+            };
+
+            addMenuItem("🌐", "Mercado Global", showGlobalMarketWindow);
+            addMenuItem("🔴", "Loja do Mark", showPortableBallShop);
+
+            menu.addEventListener("click", (e) => e.stopPropagation());
+        }
+        return menu;
+    }
+
+    function injetarBotoesDockLojasEDepot() {
+        // Funcionalidades desativadas visualmente a pedido do usuário:
+        // Mantém todo o código-fonte intacto no script, mas impede a injeção e exibição dos botões no Dock.
+        document.getElementById("dock-btn-shops-wrapper")?.remove();
+        document.getElementById("dock-btn-depot")?.remove();
+        document.getElementById("dock-shops-menu-global")?.remove();
+        return;
+    }
+
     // -------------------------------------------------------------------------
     // INICIALIZAÇÃO CONTROLADA
     // -------------------------------------------------------------------------
@@ -10222,8 +11450,11 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         observarResgateDiario();
         atualizarBannerDetectorShiny();
         initCatchAnalyzerDB();
+        injetarBotoesDockLojasEDepot();
 
+        // Monitoramento periódico dos botões do Dock
         setInterval(() => {
+            injetarBotoesDockLojasEDepot();
             if (typeof applyChatState === "function") applyChatState();
         }, 1500);
     }
