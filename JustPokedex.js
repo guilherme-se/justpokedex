@@ -277,50 +277,124 @@
         if (salvoHist) historicoShinies = JSON.parse(salvoHist) || [];
     } catch (e) { }
 
+    function resolverEspecieInfo(name, speciesId) {
+        let id = speciesId ? Number(speciesId) : null;
+        let resolvedName = name ? String(name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim() : "";
+
+        // Tenta resolver o NOME se tivermos apenas o ID
+        if (id && (!resolvedName || resolvedName.toLowerCase().startsWith("pokémon #"))) {
+            if (typeof creaturesData !== "undefined" && Array.isArray(creaturesData)) {
+                const found = creaturesData.find(c => Number(c.pokeId || c.id || c.speciesId) === id);
+                if (found?.name) resolvedName = found.name;
+            }
+            if (!resolvedName && typeof obterInfoPokemon === "function") {
+                const info = obterInfoPokemon(id);
+                if (info?.name) resolvedName = info.name;
+            }
+        }
+
+        // Tenta resolver o ID se tivermos apenas o NOME
+        if (!id && resolvedName && !resolvedName.toLowerCase().startsWith("pokémon #")) {
+            const cleanKey = resolvedName.toLowerCase().replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+            if (typeof creaturesMapByName !== "undefined" && creaturesMapByName.has && creaturesMapByName.has(cleanKey)) {
+                const found = creaturesMapByName.get(cleanKey);
+                const foundId = Number(found?.pokeId || found?.id || found?.speciesId);
+                if (foundId) id = foundId;
+            }
+            if (!id && typeof creaturesData !== "undefined" && Array.isArray(creaturesData)) {
+                const found = creaturesData.find(c => String(c.name || "").toLowerCase() === cleanKey);
+                const foundId = Number(found?.pokeId || found?.id || found?.speciesId);
+                if (foundId) id = foundId;
+            }
+            if (!id && typeof obterInfoPokemon === "function") {
+                const info = obterInfoPokemon(cleanKey);
+                const foundId = Number(info?.id || info?.speciesId || info?.pokeId);
+                if (foundId) id = foundId;
+            }
+        }
+
+        return { id, name: resolvedName };
+    }
+
+    function limparDuplicatasHistoricoShiny() {
+        if (!Array.isArray(historicoShinies) || historicoShinies.length <= 1) return;
+        const limpos = [];
+
+        for (const entry of historicoShinies) {
+            const resolved = resolverEspecieInfo(entry.name, entry.speciesId);
+            const entryId = resolved.id || Number(entry.speciesId) || null;
+            const entryName = resolved.name || String(entry.name || "").replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+            const time = entry.timestamp || 0;
+
+            const ehDuplicata = limpos.find(existente => {
+                const exResolved = resolverEspecieInfo(existente.name, existente.speciesId);
+                const exId = exResolved.id || Number(existente.speciesId) || null;
+                const exName = exResolved.name || String(existente.name || "").replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+                const delta = Math.abs(time - (existente.timestamp || 0));
+
+                if (delta > 120000) return false;
+
+                if (entryId && exId && entryId === exId) return true;
+                if (entryName && exName && entryName.toLowerCase() === exName.toLowerCase()) return true;
+                if (entryId && exName && exName.toLowerCase() === `pokémon #${entryId}`) return true;
+                if (exId && entryName && entryName.toLowerCase() === `pokémon #${exId}`) return true;
+
+                return false;
+            });
+
+            if (ehDuplicata) {
+                if (entryName && !entryName.toLowerCase().startsWith("pokémon #") && ehDuplicata.name.toLowerCase().includes("pokémon #")) {
+                    ehDuplicata.name = `Shiny ${entryName}`;
+                }
+                if (entryId && !ehDuplicata.speciesId) {
+                    ehDuplicata.speciesId = entryId;
+                }
+            } else {
+                if (entryId && !entry.speciesId) entry.speciesId = entryId;
+                if (entryName && entry.name.toLowerCase().includes("pokémon #")) entry.name = `Shiny ${entryName}`;
+                limpos.push(entry);
+            }
+        }
+
+        if (limpos.length !== historicoShinies.length) {
+            historicoShinies = limpos;
+            try {
+                localStorage.setItem(SHINY_HISTORY_KEY, JSON.stringify(historicoShinies));
+            } catch (e) { }
+        }
+    }
+
+    limparDuplicatasHistoricoShiny();
+
     function registrarEncontroShiny(mob) {
         if (!mob || typeof mob !== "object") return;
         const agora = Date.now();
 
-        let speciesId = mob.speciesId || mob.species || mob.pokeId || mob.pokemonId || null;
-        if (speciesId !== null && speciesId !== undefined) speciesId = Number(speciesId);
+        let rawSpeciesId = mob.speciesId || mob.species || mob.pokeId || mob.pokemonId || null;
+        let rawName = mob.name || mob.pokemonName || mob.speciesName || "";
 
-        let name = mob.name || mob.pokemonName || mob.speciesName || "";
-
-        // Se tivermos speciesId mas não o nome, tenta encontrar via obterInfoPokemon
-        if (!name && speciesId && typeof obterInfoPokemon === "function") {
-            const info = obterInfoPokemon(speciesId);
-            if (info?.name) name = info.name;
-        }
-
-        // Se tivermos o nome mas não o speciesId, tenta encontrar o speciesId via obterInfoPokemon
-        if (!speciesId && name && typeof obterInfoPokemon === "function") {
-            const clean = String(name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
-            const info = obterInfoPokemon(clean);
-            if (info?.id || info?.speciesId) speciesId = Number(info.id || info.speciesId);
-        }
-
-        if (!name && speciesId) {
-            name = `Pokémon #${speciesId}`;
-        }
-        if (!name && !speciesId) {
-            name = "Shiny Pokémon";
-        }
-
-        const cleanName = String(name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+        const resolved = resolverEspecieInfo(rawName, rawSpeciesId);
+        const speciesId = resolved.id;
+        const cleanName = resolved.name || (speciesId ? `Pokémon #${speciesId}` : "Shiny Pokémon");
         const fullName = `Shiny ${cleanName}`;
 
-        // VERIFICAÇÃO E ATUALIZAÇÃO DE LOG EXISTENTE (janela de 60 segundos)
-        const limiteTempoDuplicata = 60000;
+        limparDuplicatasHistoricoShiny();
+
+        // VERIFICAÇÃO E ATUALIZAÇÃO DE LOG EXISTENTE (janela de 2 minutos)
+        const limiteTempoDuplicata = 120000;
         const duplicataOuExistente = historicoShinies.find(e => {
-            const delta = agora - (e.timestamp || 0);
+            const delta = Math.abs(agora - (e.timestamp || 0));
             if (delta > limiteTempoDuplicata) return false;
 
             if (speciesId && e.speciesId && Number(e.speciesId) === Number(speciesId)) return true;
 
-            if (cleanName && e.name) {
-                const eClean = String(e.name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim().toLowerCase();
-                if (eClean === cleanName.toLowerCase()) return true;
-                if (e.speciesId && cleanName.toLowerCase() === `pokémon #${e.speciesId}`) return true;
+            const eClean = String(e.name || "").replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim().toLowerCase();
+            const currentClean = cleanName.toLowerCase();
+
+            if (currentClean && eClean) {
+                if (eClean === currentClean) return true;
+                if (e.speciesId && currentClean === `pokémon #${e.speciesId}`) return true;
+                if (speciesId && eClean === `pokémon #${speciesId}`) return true;
             }
 
             if (mob.slot != null && e.slot != null && mob.slot === e.slot) return true;
@@ -331,7 +405,7 @@
         if (duplicataOuExistente) {
             let alterou = false;
 
-            if (cleanName && !cleanName.includes("Pokémon #") && duplicataOuExistente.name.includes("Pokémon #")) {
+            if (cleanName && !cleanName.toLowerCase().startsWith("pokémon #") && duplicataOuExistente.name.toLowerCase().includes("pokémon #")) {
                 duplicataOuExistente.name = fullName;
                 alterou = true;
             }
@@ -455,6 +529,8 @@
     function atualizarPainelShinyLog() {
         const panel = document.getElementById("shiny-log-panel");
         if (!panel || panel.style.display === "none") return;
+
+        limparDuplicatasHistoricoShiny();
 
         let filtroBusca = panel.querySelector(".shiny-log-search")?.value || "";
 
@@ -1376,13 +1452,17 @@
 
     async function carregarCreatures() {
         try {
-            const resposta = await fetch("/game/creatures.json");
-            if (resposta.ok) {
+            let resposta = await fetch("/game/creatures.json").catch(() => null);
+            if (!resposta || !resposta.ok) {
+                resposta = await fetch("https://poke.idleworld.online/game/creatures.json").catch(() => null);
+            }
+            if (resposta && resposta.ok) {
                 const dados = await resposta.json();
-                creaturesData = Array.isArray(dados?.creatures) ? dados.creatures : [];
+                creaturesData = Array.isArray(dados?.creatures) ? dados.creatures : (Array.isArray(dados) ? dados : []);
                 for (const c of creaturesData) {
                     if (c && c.name) {
-                        creaturesMapByName.set(c.name.toLowerCase().trim(), c);
+                        const cleanKey = c.name.toLowerCase().replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+                        creaturesMapByName.set(cleanKey, c);
                     }
                 }
                 console.log("[Poké Leitor] Dados de creatures.json carregados:", creaturesMapByName.size);
@@ -9345,6 +9425,169 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         return entries;
     }
 
+    const markPricesCache = new Map();
+
+    function parseGamePriceNumber(value) {
+        if (typeof value === "number") return Number.isFinite(value) ? Math.round(value) : 0;
+        const text = String(value ?? '').trim().toLowerCase();
+        if (!text) return 0;
+        const abbreviated = text.match(/(-?\d+(?:[.,]\d+)?)\s*([kmb])\b/);
+        if (abbreviated) {
+            const number = Number(abbreviated[1].replace(',', '.'));
+            const multipliers = { k: 1e3, m: 1e6, b: 1e9 };
+            return Number.isFinite(number) ? Math.round(number * multipliers[abbreviated[2]]) : 0;
+        }
+        const digits = text.replace(/[^0-9-]/g, '');
+        const parsed = parseInt(digits, 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function readPokemonPricesFromDOM() {
+        try {
+            // 1. Scrape direto da estrutura HTML da Loja do Mark oficial do jogo (label.mk-row, .mk-name, .mk-meta, .mk-price)
+            const officialRows = Array.from(document.querySelectorAll("label.mk-row, .mk-row, .mk-srow-head, label[class*='mk-row']"))
+                .filter(el => !el.closest(".script-mark-shop-window") && !el.closest(".script-mark-shop-backdrop"));
+
+            officialRows.forEach(row => {
+                const nameEl = row.querySelector(".mk-name, [class*='mk-name']");
+                const metaEl = row.querySelector(".mk-meta, [class*='mk-meta']");
+                const priceEl = row.querySelector(".mk-price, [class*='mk-price']");
+
+                const nameText = nameEl ? nameEl.innerText.trim() : "";
+                const metaText = metaEl ? metaEl.innerText.trim() : "";
+                const priceText = priceEl ? priceEl.innerText.trim() : "";
+
+                if (nameText && priceText) {
+                    const priceVal = parseGamePriceNumber(priceText);
+                    if (priceVal > 0) {
+                        const cleanName = nameText.toLowerCase().replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+                        markPricesCache.set(cleanName, priceVal);
+
+                        const ivMatch = metaText.match(/IV\s*(\d+)/i);
+                        const lvlMatch = metaText.match(/Nv\s*(\d+)/i) || metaText.match(/Lvl\s*(\d+)/i);
+                        if (ivMatch) {
+                            const lvl = lvlMatch ? lvlMatch[1] : "1";
+                            markPricesCache.set(`${cleanName}_${lvl}_${ivMatch[1]}`, priceVal);
+                        }
+                    }
+                }
+            });
+
+            // 2. Fallback para outros seletores caso a loja use contêineres alternativos
+            const fallbackRows = Array.from(document.querySelectorAll("div, li, tr, label"))
+                .filter(el => !el.closest(".script-mark-shop-window") && !el.closest(".script-mark-shop-backdrop"));
+
+            fallbackRows.forEach(row => {
+                const text = row.innerText || "";
+                if (text.includes("$") && (text.includes("IV") || text.includes("Nv") || text.includes("Lvl"))) {
+                    const priceMatch = text.match(/\$\s*([\d.]+)/);
+                    if (priceMatch) {
+                        const priceVal = parseGamePriceNumber(priceMatch[1]);
+                        if (priceVal > 0) {
+                            const nameMatch = text.match(/([A-Z][a-zA-Z\s'-]+)/);
+                            if (nameMatch) {
+                                const cleanName = nameMatch[1].toLowerCase().replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+                                if (!markPricesCache.has(cleanName)) {
+                                    markPricesCache.set(cleanName, priceVal);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (e) { }
+        return markPricesCache;
+    }
+
+    function getPokemonNpcSellPrice(poke) {
+        if (!poke) return 10000;
+        const name = poke.name || poke.speciesName || "";
+        const cleanName = String(name).toLowerCase().replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+        const speciesId = poke.speciesId || poke.species || poke.pokeId || poke.pokemonId || poke.id;
+        const level = poke.level || poke.lvl || poke.levelNum || 1;
+
+        let ivTotal = 0;
+        if (typeof poke.ivTotal === "number") ivTotal = poke.ivTotal;
+        else if (typeof poke.iv === "number") ivTotal = poke.iv;
+        else if (typeof poke.totalIv === "number") ivTotal = poke.totalIv;
+        else if (poke.ivs && typeof poke.ivs === "object") {
+            ivTotal = Object.values(poke.ivs).reduce((a, b) => a + (Number(b) || 0), 0);
+        }
+
+        const possiblePriceKeys = [
+            'sellValue', 'priceNpc', 'sell', 'sellsFor', 'price', 'value',
+            'gold', 'money', 'cost', 'reward', 'priceGold', 'npcPrice',
+            'sellPrice', 'sell_price', 'npc_price', 'basePrice', 'base_price'
+        ];
+
+        // 1. Checa se o próprio objeto `poke` tem um campo de preço explícito vindo do servidor
+        for (const key of possiblePriceKeys) {
+            if (poke[key] !== undefined && poke[key] !== null && poke[key] !== '') {
+                const parsed = parseGamePriceNumber(poke[key]);
+                if (parsed > 0) return parsed;
+            }
+        }
+
+        // 2. Checa a lista de criaturas do jogo (`/game/creatures.json` - exatamente como no concorrente.js)
+        let c = null;
+        if (cleanName && typeof creaturesMapByName !== "undefined" && creaturesMapByName.has) {
+            c = creaturesMapByName.get(cleanName);
+            if (!c) {
+                for (const [k, v] of creaturesMapByName.entries()) {
+                    if (k.includes(cleanName) || cleanName.includes(k)) {
+                        c = v;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!c && speciesId && typeof creaturesData !== "undefined" && Array.isArray(creaturesData)) {
+            c = creaturesData.find(cr => (cr.pokeId || cr.id || cr.speciesId) == speciesId);
+        }
+
+        if (c) {
+            for (const key of possiblePriceKeys) {
+                if (c[key] !== undefined && c[key] !== null && c[key] !== '') {
+                    const parsed = parseGamePriceNumber(c[key]);
+                    if (parsed > 0) return parsed;
+                }
+            }
+        }
+
+        // 3. Atualiza e checa o cache lido do DOM da loja do Mark se a janela oficial do jogo estiver/esteve aberta
+        const domMap = readPokemonPricesFromDOM();
+        const keyFull = `${cleanName}_${level}_${ivTotal}`;
+        if (domMap.has(keyFull)) return domMap.get(keyFull);
+        if (cleanName && domMap.has(cleanName)) return domMap.get(cleanName);
+
+        // 4. Fallback por Raridade da Espécie (Pokédex)
+        let speciesRarity = "";
+        if (typeof obterInfoPokemon === "function" && (name || speciesId)) {
+            const info = obterInfoPokemon(cleanName || speciesId);
+            speciesRarity = String(info?.qualidade || info?.raridade || info?.tier || info?.qualityTier || "").trim();
+        }
+        if (!speciesRarity && c) {
+            speciesRarity = String(c.rarity || c.raridade || c.tier || c.quality || "").trim();
+        }
+        if (!speciesRarity) {
+            speciesRarity = String(poke.rarity || poke.raridade || poke.tier || poke.qualityTier || "").trim();
+        }
+
+        const normRarity = speciesRarity.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        if (normRarity.includes("lenda") || normRarity.includes("mitic") || normRarity.includes("anci") || normRarity.includes("divin")) {
+            return 100000;
+        }
+        if (normRarity.includes("epic") || normRarity.includes("epica")) {
+            return 40000;
+        }
+        if (normRarity.includes("rara") || normRarity.includes("rare")) {
+            return 18000;
+        }
+
+        return 10000;
+    }
+
     function showPurchaseConfirm({ name, maxQuantity = 1, unitPrice, currentBalance, currency = "GOLD" }, callback) {
         document.querySelector(".purchase-confirm-backdrop")?.remove();
         const icon = currency === "DIAMONDS" ? "💎" : "$";
@@ -11262,11 +11505,15 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                     <div class="mark-view mark-view-pokemon" style="display:none;flex-direction:column;gap:12px;">
                         <div style="background:#121722;border:1px solid #212c3d;border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:10px;flex:none;">
                             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:#63b3ed;font-weight:800;">
+                                    <span>Nome:</span>
+                                    <input class="poke-filter-name" type="text" placeholder="Buscar Pokémon..." style="width:130px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 8px;color:#fff;font-size:12px;outline:none;font-weight:700;">
+                                </div>
                                 <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:#f1c644;font-weight:800;">
                                     <span>IV:</span>
-                                    <input class="poke-filter-iv-min" type="number" placeholder="de" style="width:55px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 6px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:700;">
+                                    <input class="poke-filter-iv-min" type="number" placeholder="de" style="width:50px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 6px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:700;">
                                     <span style="color:#94a3b8;">-</span>
-                                    <input class="poke-filter-iv-max" type="number" placeholder="até" style="width:55px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 6px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:700;">
+                                    <input class="poke-filter-iv-max" type="number" placeholder="até" style="width:50px;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:4px 6px;color:#fff;font-size:12px;outline:none;text-align:center;font-weight:700;">
                                 </div>
 
                                 <div class="poke-rarity-pills" style="display:flex;gap:5px;flex-wrap:wrap;margin-left:auto;"></div>
@@ -11660,7 +11907,8 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
             }
 
             const rarityRaw = rarityName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            const price = poke.price || poke.priceGold || poke.npcPrice || poke.sellPrice || (level * 100 + ivTotal * 10) || 3000;
+
+            const price = getPokemonNpcSellPrice(poke);
 
             let spriteUrl = "";
             let fallbackUrl = "";
@@ -11697,6 +11945,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         async function loadPokemonList() {
             const pokesListEl = backdrop.querySelector(".mark-pokes-list");
             const rarityPillsEl = backdrop.querySelector(".poke-rarity-pills");
+            const nameInput = backdrop.querySelector(".poke-filter-name");
             const ivMinInput = backdrop.querySelector(".poke-filter-iv-min");
             const ivMaxInput = backdrop.querySelector(".poke-filter-iv-max");
             const selectAllCb = backdrop.querySelector(".poke-select-all-cb");
@@ -11715,6 +11964,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
             }
 
             function renderFilteredPokes() {
+                const nameQuery = nameInput?.value?.trim()?.toLowerCase() || "";
                 const ivMinStr = ivMinInput?.value?.trim() || "";
                 const ivMaxStr = ivMaxInput?.value?.trim() || "";
                 const ivMin = ivMinStr !== "" ? parseInt(ivMinStr, 10) : null;
@@ -11724,6 +11974,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                 const todasSelecionadas = raridadesSelecionadas.size === RARIDADE_LISTA.length || raridadesSelecionadas.size === 0;
 
                 const filtered = formattedList.filter(poke => {
+                    if (nameQuery && !poke.name.toLowerCase().includes(nameQuery)) return false;
                     if (ivMin !== null && !isNaN(ivMin) && poke.ivTotal < ivMin) return false;
                     if (ivMax !== null && !isNaN(ivMax) && poke.ivTotal > ivMax) return false;
 
@@ -11835,6 +12086,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                 });
             }
 
+            if (nameInput) nameInput.oninput = renderFilteredPokes;
             if (ivMinInput) ivMinInput.oninput = renderFilteredPokes;
             if (ivMaxInput) ivMaxInput.oninput = renderFilteredPokes;
 
