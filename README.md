@@ -22,8 +22,9 @@
 
 | Ícone | Funcionalidade | Descrição |
 | :---: | :--- | :--- |
-| 🐭 | **Leitura por Hover** | Detecta e lê os dados do Pokémon ao passar o mouse sobre itens do inventário (`.inv-tip`). |
-| 🏪 | **Mercado Global** | Clique em qualquer Pokémon listado no mercado para ler seus status e estimar seus IVs na hora. |
+| 🏪 | **Mercado Global & Vendas Portátil** `✨ NOVO` | Permite navegar no mercado global, criar anúncios de **Itens, Poké Bolas e Pokémons**, consultar e cancelar anúncios ativos com filtros por IV, Qualidade e Tipo. *(Créditos: desjunior)* |
+| 📜 | **Log de Shinies Acoplado (Timestamps)** `✨ NOVO` | Painel lateral estilo Poképédia com histórico em tempo real dos Shinies que apareceram, data e hora exatas (`🕒 HH:MM:SS`), tempo decorrido e sem popups intrusivos. |
+| ☁️ | **Auto-Atualização via GitHub** `✨ NOVO` | Sistema integrado de atualização com o repositório do GitHub. Inclui botão de toggle (`☁️`) na barra superior para Ligar/Desligar verificações automáticas e botão manual de checagem com suporte a instalação de 1 clique no Tampermonkey. |
 | ⚔️ | **WebSocket Combat Proxy** | Intercepta o tráfego do jogo para registrar dano real, efetividades ($2x/4x$) e golpes sofridos. |
 | 📊 | **Cálculo de IV & Potencial** | Estima IVs exatos de $0$ a $32$ por atributo ($0$ a $192$ no total) e calcula o **Potencial do Exemplar** ($0\%$ a $100\%$). |
 | ⚠️ | **Alerta de Nível Mínimo** | Alerta automaticamente quando o Pokémon está abaixo do Nv. 15 devido a margens de arredondamento. |
@@ -39,7 +40,9 @@
 
 ## 📐 Explicação Matemática Detalhada (v3.0)
 
-> 🤝 **Créditos & Agradecimentos:** O cálculo de IV do JustPokédex é baseado nas fórmulas da ferramenta [PIW Tools](https://piwtools.pages.dev/), desenvolvida com a colaboração e apoio do **@bar** (criador da ferramenta).
+> 🤝 **Créditos & Agradecimentos:**  
+> - **Cálculo de IVs:** Baseado nas fórmulas da ferramenta [PIW Tools](https://piwtools.pages.dev/), desenvolvida com a colaboração e apoio do **@bar** (criador da ferramenta).  
+> - **Mercado Global & Integração com Depot:** Agradecimento especial ao **desjunior**, que autorizou e apoiou a implementação das funcionalidades de Mercado Global Portátil e integração de Depot/Inventário no projeto.
 
 ### 1️⃣ Equação Direta de Atributo
 

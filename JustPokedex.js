@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         JustPokedex
-// @namespace    poke-idle-world-tools
-// @version      3.0
-// @description  Lê os dados dos Pokémon e estima seus IVs individuais
-// @match        https://poke.idleworld.online/*
+// @namespace    https://github.com/guilherme-se/justpokedex
+// @version      3.0.1
+// @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil e Detector de Shinies
+// @match        https://*.idleworld.online/*
 // @grant        none
+// @downloadURL  https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js
+// @updateURL    https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js
 // @run-at       document-start
 // ==/UserScript==
 
@@ -12,7 +14,7 @@
     "use strict";
 
     // -------------------------------------------------------------------------
-    // RASTREAMENTO GLOBAL
+    // RASTREAMENTO GLOBAL DE WEBSOCKET & AUTENTICAÇÃO API DAS LOJAS / DEPOT
     // -------------------------------------------------------------------------
     const NativeWebSocket = window.WebSocket;
     let gameSocket = null;
@@ -135,8 +137,129 @@
         }
     };
 
+    const CURRENT_SCRIPT_VERSION = "3.0.1";
+    const GITHUB_RAW_URL = "https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js";
+    const AUTO_UPDATE_SETTING_KEY = "justpokedex-auto-update-enabled";
+
+    let autoUpdateEnabled = true;
+    try {
+        const salvoAutoUpdate = localStorage.getItem(AUTO_UPDATE_SETTING_KEY);
+        if (salvoAutoUpdate !== null) {
+            autoUpdateEnabled = salvoAutoUpdate === "true";
+        }
+    } catch (e) { }
+
+    function setAutoUpdateSetting(enabled) {
+        autoUpdateEnabled = Boolean(enabled);
+        try {
+            localStorage.setItem(AUTO_UPDATE_SETTING_KEY, String(autoUpdateEnabled));
+        } catch (e) { }
+    }
+
+    function isNewerVersion(vRemote, vCurrent) {
+        const pR = String(vRemote).split(".").map(Number);
+        const pC = String(vCurrent).split(".").map(Number);
+        for (let i = 0; i < Math.max(pR.length, pC.length); i++) {
+            const r = pR[i] || 0;
+            const c = pC[i] || 0;
+            if (r > c) return true;
+            if (r < c) return false;
+        }
+        return false;
+    }
+
+    async function checarAtualizacoesGitHub(manual = false) {
+        if (!autoUpdateEnabled && !manual) return;
+
+        try {
+            const res = await fetch(`${GITHUB_RAW_URL}?t=${Date.now()}`);
+            if (!res.ok) {
+                if (manual) alert("Não foi possível conectar ao GitHub para verificar atualizações.");
+                return;
+            }
+            const text = await res.text();
+            const match = text.match(/@version\s+([\d.]+)/);
+            if (match && match[1]) {
+                const versaoRemota = match[1].trim();
+                if (isNewerVersion(versaoRemota, CURRENT_SCRIPT_VERSION)) {
+                    exibirBannerAtualizacao(versaoRemota);
+                } else if (manual) {
+                    alert(`Seu JustPokédex já está atualizado na versão mais recente (v${CURRENT_SCRIPT_VERSION})!`);
+                }
+            }
+        } catch (e) {
+            if (manual) alert("Erro ao verificar atualizações no GitHub: " + e.message);
+        }
+    }
+
+    function exibirBannerAtualizacao(versaoNova) {
+        document.getElementById("justpokedex-update-banner")?.remove();
+        const mainPanel = document.getElementById(CONFIG.panelId);
+        if (!mainPanel) return;
+
+        const banner = document.createElement("div");
+        banner.id = "justpokedex-update-banner";
+        banner.style.cssText = `
+            background: linear-gradient(90deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+            color: #ffffff;
+            border-bottom: 1px solid #6366f1;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex: none;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+        `;
+
+        banner.innerHTML = `
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span>🎉</span>
+                <span>Nova versão <strong style="color:#fcd34d;">v${versaoNova}</strong> no GitHub!</span>
+                <span style="font-size:9.5px;color:#a5b4fc;font-weight:normal;">(Atual: v${CURRENT_SCRIPT_VERSION})</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <a href="${GITHUB_RAW_URL}" target="_blank" style="background:#4ade80;color:#052e16;padding:3px 8px;border-radius:6px;font-size:10.5px;font-weight:800;text-decoration:none;box-shadow:0 2px 4px rgba(0,0,0,0.3);">
+                    🚀 Atualizar no Tampermonkey
+                </a>
+                <button id="btn-toggle-autoupdate-banner" type="button" style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:2px 6px;border-radius:6px;font-size:9.5px;font-weight:800;cursor:pointer;" title="Alternar verificação automática de atualização">
+                    ${autoUpdateEnabled ? '🔄 Auto: ON' : '⏸️ Auto: OFF'}
+                </button>
+                <button id="btn-close-update-banner" type="button" style="background:transparent;border:none;color:#a5b4fc;font-size:14px;cursor:pointer;padding:0 2px;line-height:1;" title="Fechar aviso">✕</button>
+            </div>
+        `;
+
+        const dragHandle = mainPanel.querySelector("#drag-handle") || mainPanel.firstChild;
+        if (dragHandle && dragHandle.nextSibling) {
+            mainPanel.insertBefore(banner, dragHandle.nextSibling);
+        } else {
+            mainPanel.appendChild(banner);
+        }
+
+        const btnToggle = banner.querySelector("#btn-toggle-autoupdate-banner");
+        if (btnToggle) {
+            btnToggle.onclick = (e) => {
+                e.stopPropagation();
+                setAutoUpdateSetting(!autoUpdateEnabled);
+                btnToggle.textContent = autoUpdateEnabled ? '🔄 Auto: ON' : '⏸️ Auto: OFF';
+            };
+        }
+
+        const btnClose = banner.querySelector("#btn-close-update-banner");
+        if (btnClose) {
+            btnClose.onclick = (e) => {
+                e.stopPropagation();
+                banner.remove();
+            };
+        }
+    }
+
     const SHINY_COUNTER_KEY = "justpokedex-shiny-counter";
     const SHINY_SOUND_ENABLED_KEY = "justpokedex-shiny-sound-enabled";
+    const SHINY_HISTORY_KEY = "justpokedex-shiny-history";
+
     let contadorShinies = 0;
     let shinyDetectadoNoMapa = false;
     let tempoUltimoShiny = 0;
@@ -147,6 +270,308 @@
     // Rastreamento inteligente de Shinies no mapa (evita duplicações de notificação/contador)
     const shiniesVistosNoMapa = new Map(); // mobKey => { firstSeen, lastSeen, speciesId, slot }
     const shiniesProcessadosEDerrotados = new Set(); // mobKey
+
+    let historicoShinies = [];
+    try {
+        const salvoHist = localStorage.getItem(SHINY_HISTORY_KEY);
+        if (salvoHist) historicoShinies = JSON.parse(salvoHist) || [];
+    } catch (e) { }
+
+    function registrarEncontroShiny(mob) {
+        if (!mob || typeof mob !== "object") return;
+        const agora = Date.now();
+
+        let speciesId = mob.speciesId || mob.species || mob.pokeId || mob.pokemonId || null;
+        if (speciesId !== null && speciesId !== undefined) speciesId = Number(speciesId);
+
+        let name = mob.name || mob.pokemonName || mob.speciesName || "";
+
+        // Se tivermos speciesId mas não o nome, tenta encontrar via obterInfoPokemon
+        if (!name && speciesId && typeof obterInfoPokemon === "function") {
+            const info = obterInfoPokemon(speciesId);
+            if (info?.name) name = info.name;
+        }
+
+        // Se tivermos o nome mas não o speciesId, tenta encontrar o speciesId via obterInfoPokemon
+        if (!speciesId && name && typeof obterInfoPokemon === "function") {
+            const clean = String(name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+            const info = obterInfoPokemon(clean);
+            if (info?.id || info?.speciesId) speciesId = Number(info.id || info.speciesId);
+        }
+
+        if (!name && speciesId) {
+            name = `Pokémon #${speciesId}`;
+        }
+        if (!name && !speciesId) {
+            name = "Shiny Pokémon";
+        }
+
+        const cleanName = String(name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim();
+        const fullName = `Shiny ${cleanName}`;
+
+        // VERIFICAÇÃO E ATUALIZAÇÃO DE LOG EXISTENTE (janela de 60 segundos)
+        const limiteTempoDuplicata = 60000;
+        const duplicataOuExistente = historicoShinies.find(e => {
+            const delta = agora - (e.timestamp || 0);
+            if (delta > limiteTempoDuplicata) return false;
+
+            if (speciesId && e.speciesId && Number(e.speciesId) === Number(speciesId)) return true;
+
+            if (cleanName && e.name) {
+                const eClean = String(e.name).replace(/^✨\s*/, "").replace(/^Shiny\s*/i, "").trim().toLowerCase();
+                if (eClean === cleanName.toLowerCase()) return true;
+                if (e.speciesId && cleanName.toLowerCase() === `pokémon #${e.speciesId}`) return true;
+            }
+
+            if (mob.slot != null && e.slot != null && mob.slot === e.slot) return true;
+
+            return false;
+        });
+
+        if (duplicataOuExistente) {
+            let alterou = false;
+
+            if (cleanName && !cleanName.includes("Pokémon #") && duplicataOuExistente.name.includes("Pokémon #")) {
+                duplicataOuExistente.name = fullName;
+                alterou = true;
+            }
+
+            if (speciesId && !duplicataOuExistente.speciesId) {
+                duplicataOuExistente.speciesId = speciesId;
+                alterou = true;
+            }
+
+            if (alterou) {
+                try {
+                    localStorage.setItem(SHINY_HISTORY_KEY, JSON.stringify(historicoShinies));
+                } catch (e) { }
+                if (mostrarPainelShinyLog) atualizarPainelShinyLog();
+            }
+
+            return;
+        }
+
+        const d = new Date(agora);
+        const timeStr = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const dateStr = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+        const logEntry = {
+            id: `shiny_${agora}_${Math.random().toString(36).substr(2, 5)}`,
+            timestamp: agora,
+            dateStr,
+            timeStr,
+            fullDateStr: `${dateStr} às ${timeStr}`,
+            speciesId,
+            name: fullName,
+            slot: mob.slot ?? null
+        };
+
+        historicoShinies.unshift(logEntry);
+        if (historicoShinies.length > 200) historicoShinies = historicoShinies.slice(0, 200);
+
+        try {
+            localStorage.setItem(SHINY_HISTORY_KEY, JSON.stringify(historicoShinies));
+        } catch (e) { }
+
+        if (mostrarPainelShinyLog) {
+            atualizarPainelShinyLog();
+        }
+    }
+
+    function zerarHistoricoShiny() {
+        historicoShinies = [];
+        try {
+            localStorage.setItem(SHINY_HISTORY_KEY, "[]");
+        } catch (e) { }
+    }
+
+    let mostrarPainelShinyLog = false;
+
+    function alternarPainelShinyLog(forcarState) {
+        if (typeof forcarState === "boolean") {
+            mostrarPainelShinyLog = forcarState;
+        } else {
+            mostrarPainelShinyLog = !mostrarPainelShinyLog;
+        }
+
+        let panel = document.getElementById("shiny-log-panel");
+        if (!panel) {
+            panel = document.createElement("div");
+            panel.id = "shiny-log-panel";
+            panel.style.cssText = `
+                position: fixed;
+                width: 360px;
+                z-index: 2147483645;
+                display: flex;
+                flex-direction: column;
+                color: #f7f7f7;
+                background: radial-gradient(circle at top right, rgba(241, 198, 68, 0.08), transparent 42%), linear-gradient(165deg, #151923 0%, #0c0f16 55%, #080a0f 100%);
+                border: 2px solid #f1c644;
+                border-radius: 16px;
+                box-shadow: 0 0 0 3px rgba(0,0,0,.75), 0 14px 40px rgba(0,0,0,.7);
+                font-family: Arial, Helvetica, sans-serif;
+                overflow: hidden;
+                box-sizing: border-box;
+            `;
+            document.body.appendChild(panel);
+        }
+
+        panel.style.display = mostrarPainelShinyLog ? "flex" : "none";
+
+        if (mostrarPainelShinyLog) {
+            atualizarPainelShinyLog();
+            atualizarPosicaoPainelShinyLog();
+        }
+    }
+
+    function showShinyHistoryWindow() {
+        alternarPainelShinyLog(true);
+    }
+
+    function atualizarPosicaoPainelShinyLog() {
+        const mainPanel = document.getElementById(CONFIG.panelId);
+        const shinyPanel = document.getElementById("shiny-log-panel");
+        if (!mainPanel || !shinyPanel || shinyPanel.style.display === "none") return;
+
+        const rect = mainPanel.getBoundingClientRect();
+        const itemsPanel = document.getElementById("items-panel");
+        const itemsAberto = itemsPanel && itemsPanel.style.display !== "none";
+
+        let left;
+        if (!itemsAberto && (rect.left - 368 >= 8)) {
+            left = rect.left - 368;
+        } else if (rect.right + 8 + 360 <= window.innerWidth - 8) {
+            left = rect.right + 8;
+        } else {
+            left = Math.max(8, rect.left - 368);
+        }
+
+        shinyPanel.style.left = `${left}px`;
+        shinyPanel.style.top = `${rect.top}px`;
+        shinyPanel.style.height = "auto";
+        shinyPanel.style.maxHeight = `calc(100vh - ${rect.top + 16}px)`;
+    }
+
+    function atualizarPainelShinyLog() {
+        const panel = document.getElementById("shiny-log-panel");
+        if (!panel || panel.style.display === "none") return;
+
+        let filtroBusca = panel.querySelector(".shiny-log-search")?.value || "";
+
+        let html = `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(255,255,255,0.08);flex:none;">
+                <strong style="color:#ffe984;font-size:12px;display:flex;align-items:center;gap:6px;">
+                    ✨ Log de Shinies (${historicoShinies.length})
+                </strong>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    ${historicoShinies.length > 0 ? `<button class="shiny-log-clear-btn" type="button" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#f87171;font-size:10px;font-weight:bold;padding:2px 6px;border-radius:4px;cursor:pointer;" title="Zerar Histórico">Limpar</button>` : ""}
+                    <button class="shiny-log-close-btn" type="button" style="background:transparent;border:none;color:#a2b4cf;font-size:16px;cursor:pointer;padding:0 2px;line-height:1;" title="Fechar">✕</button>
+                </div>
+            </div>
+
+            <div style="padding:8px 10px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.05);flex:none;">
+                <input class="shiny-log-search" type="search" placeholder="🔍 Buscar por nome ou #ID..." value="${escapeHtml(filtroBusca)}" style="width:100%;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:6px 10px;color:#fff;font-size:11px;outline:none;box-sizing:border-box;">
+            </div>
+
+            <div class="shiny-log-list" style="padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;max-height:480px;box-sizing:border-box;">
+            </div>
+        `;
+
+        panel.innerHTML = html;
+
+        const searchEl = panel.querySelector(".shiny-log-search");
+        const closeBtn = panel.querySelector(".shiny-log-close-btn");
+        const clearBtn = panel.querySelector(".shiny-log-clear-btn");
+
+        if (searchEl) {
+            searchEl.addEventListener("input", () => {
+                renderShinyLogItems(panel, searchEl.value);
+            });
+        }
+
+        if (closeBtn) {
+            closeBtn.addEventListener("click", () => {
+                alternarPainelShinyLog(false);
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener("click", () => {
+                if (confirm("Deseja limpar todo o histórico de Shinies?")) {
+                    zerarHistoricoShiny();
+                    atualizarPainelShinyLog();
+                }
+            });
+        }
+
+        renderShinyLogItems(panel, filtroBusca);
+    }
+
+    function renderShinyLogItems(panel, query = "") {
+        const listEl = panel.querySelector(".shiny-log-list");
+        if (!listEl) return;
+
+        const termo = query.trim().toLowerCase();
+        let filtrados = historicoShinies;
+
+        if (termo) {
+            filtrados = historicoShinies.filter(entry =>
+                entry.name.toLowerCase().includes(termo) ||
+                (entry.speciesId && String(entry.speciesId).includes(termo))
+            );
+        }
+
+        if (!filtrados || filtrados.length === 0) {
+            listEl.innerHTML = `<div style="padding:24px;text-align:center;color:#64748b;font-size:11px;">${historicoShinies.length === 0 ? 'Nenhum Shiny registrado ainda.' : 'Nenhum Shiny encontrado com este filtro.'}</div>`;
+            return;
+        }
+
+        const agora = Date.now();
+
+        listEl.innerHTML = filtrados.map(entry => {
+            const diffMs = agora - (entry.timestamp || agora);
+            const diffMin = Math.floor(diffMs / 60000);
+            let tempoRelativo = "agora";
+            if (diffMin >= 60) {
+                const diffHoras = Math.floor(diffMin / 60);
+                tempoRelativo = `${diffHoras}h ${diffMin % 60}m`;
+            } else if (diffMin > 0) {
+                tempoRelativo = `${diffMin}m`;
+            }
+
+            let iconUrl = "";
+            if (entry.speciesId) {
+                if (typeof obterUrlsSprite === "function") {
+                    const urls = obterUrlsSprite(entry.speciesId, true);
+                    iconUrl = urls?.anim || urls?.still || "";
+                }
+                if (!iconUrl) {
+                    iconUrl = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/${entry.speciesId}.png`;
+                }
+            }
+            if (!iconUrl) iconUrl = "/assets/markitems/pokeball.png";
+
+            return `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;gap:8px;">
+                    <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                        <img src="${iconUrl}" style="width:32px;height:32px;object-fit:contain;flex:none;" onerror="this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/${entry.speciesId || 1}.png'">
+                        <div style="min-width:0;overflow:hidden;">
+                            <div style="color:#fbbf24;font-weight:bold;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px;">
+                                <span>${escapeHtml(entry.name)}</span>
+                                ${entry.speciesId ? `<span style="color:#64748b;font-size:9px;font-weight:normal;">#${entry.speciesId}</span>` : ''}
+                            </div>
+                            <div style="color:#94a3b8;font-size:10px;margin-top:2px;">
+                                🕒 <strong style="color:#e2e8f0;">${entry.timeStr}</strong> <span style="color:#475569;">· ${entry.dateStr || ''}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <span style="background:rgba(56,189,248,0.12);color:#38bdf8;border:1px solid rgba(56,189,248,0.25);padding:1px 6px;border-radius:6px;font-size:9.5px;font-weight:bold;flex:none;">
+                        ${tempoRelativo}
+                    </span>
+                </div>
+            `;
+        }).join("");
+    }
 
     let shinyDetectorEnabled = true;
     let dailyGiftEnabled = true;
@@ -585,6 +1010,7 @@
                         slot: mob.slot
                     });
                     novosShiniesDetectados++;
+                    registrarEncontroShiny(mob);
                 }
             }
         }
@@ -1952,6 +2378,7 @@
 
         atualizarPosicaoPainelMoves();
         atualizarPosicaoPainelItens();
+        atualizarPosicaoPainelShinyLog();
     }
 
     function atualizarBotaoMinimizar(painel) {
@@ -2097,6 +2524,7 @@
 
             atualizarPosicaoPainelMoves();
             atualizarPosicaoPainelItens();
+            atualizarPosicaoPainelShinyLog();
         });
 
         document.addEventListener("mouseup", () => {
@@ -2115,6 +2543,7 @@
             salvarEstadoPainel(painel);
             atualizarPosicaoPainelMoves();
             atualizarPosicaoPainelItens();
+            atualizarPosicaoPainelShinyLog();
         });
     }
 
@@ -2229,9 +2658,17 @@
                     <button
                         id="toggle-tracking"
                         type="button"
-                        style="margin-right: 4.5px; font-size: 11px; padding: 0 4px;"
+                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
                     >
                         🐭
+                    </button>
+
+                    <button
+                        id="toggle-autoupdate"
+                        type="button"
+                        style="margin-right: 4.5px; font-size: 11px; padding: 0 4px;"
+                    >
+                        ☁️
                     </button>
 
                     <button
@@ -2422,6 +2859,7 @@
         ativarRedimensionamento(painel);
         trocarAba(abaAtual);
         limitarPainelNaTela(painel);
+        setTimeout(() => checarAtualizacoesGitHub(false), 2500);
 
         document
             .getElementById("minimize")
@@ -2487,6 +2925,11 @@
                 } catch (e) { }
                 atualizarBotoesTopBanners();
             });
+            btnShiny.addEventListener("contextmenu", evento => {
+                evento.preventDefault();
+                evento.stopPropagation();
+                showShinyHistoryWindow();
+            });
         }
 
         if (btnDaily) {
@@ -2520,6 +2963,36 @@
                 mouseTrackingEnabled = !mouseTrackingEnabled;
                 localStorage.setItem("pokemon-reader-tracking", mouseTrackingEnabled);
                 atualizarEstiloTracking();
+            });
+        }
+
+        const btnAutoUpdate = document.getElementById("toggle-autoupdate");
+        function atualizarEstiloAutoUpdate() {
+            if (!btnAutoUpdate) return;
+            if (autoUpdateEnabled) {
+                btnAutoUpdate.style.opacity = "1";
+                btnAutoUpdate.style.color = "#4ade80";
+                btnAutoUpdate.title = "Auto-Atualização do GitHub: ATIVADA (ON)\n• Clique para Desativar (OFF)\n• Botão Direito: Buscar atualizações agora";
+            } else {
+                btnAutoUpdate.style.opacity = "0.45";
+                btnAutoUpdate.style.color = "#94a3b8";
+                btnAutoUpdate.title = "Auto-Atualização do GitHub: DESATIVADA (OFF)\n• Clique para Ativar (ON)\n• Botão Direito: Buscar atualizações agora";
+            }
+        }
+        if (btnAutoUpdate) {
+            atualizarEstiloAutoUpdate();
+            btnAutoUpdate.addEventListener("click", evento => {
+                evento.stopPropagation();
+                setAutoUpdateSetting(!autoUpdateEnabled);
+                atualizarEstiloAutoUpdate();
+                alert(autoUpdateEnabled
+                    ? "🔄 Auto-Atualização do GitHub: ATIVADA!\nO JustPokédex verificará novas versões no GitHub automaticamente."
+                    : "⏸️ Auto-Atualização do GitHub: DESATIVADA!\nAs verificações automáticas foram desativadas.");
+            });
+            btnAutoUpdate.addEventListener("contextmenu", evento => {
+                evento.preventDefault();
+                evento.stopPropagation();
+                checarAtualizacoesGitHub(true);
             });
         }
 
@@ -4609,7 +5082,9 @@
             #${CONFIG.panelId}.minimized #toggle-moves,
             #${CONFIG.panelId}.minimized #toggle-items,
             #${CONFIG.panelId}.minimized #toggle-shiny,
-            #${CONFIG.panelId}.minimized #toggle-daily {
+            #${CONFIG.panelId}.minimized #toggle-daily,
+            #${CONFIG.panelId}.minimized #toggle-autoupdate,
+            #${CONFIG.panelId}.minimized #justpokedex-update-banner {
                 display: none !important;
             }
 
@@ -7400,11 +7875,20 @@
                     ${countBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                    <button id="btn-log-shiny" type="button" style="background: rgba(255,213,79,0.25); border: 1px solid rgba(255,213,79,0.5); color: #ffd54f; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none;" title="Abrir Histórico de Shinies Encontrados">📜 Log</button>
                     <button id="btn-tocar-som-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; opacity: ${soundOpacity};" title="${soundTitle}">${soundIcon}</button>
                     ${contadorShinies > 0 ? `<button id="btn-reset-shiny-counter" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Zerar contador">🔄</button>` : ""}
                     <button id="btn-limpar-shiny" type="button" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); color: #fff; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none; flex-shrink: 0;">OK</button>
                 </div>
             `;
+
+            const btnLogActive = banner.querySelector("#btn-log-shiny");
+            if (btnLogActive) {
+                btnLogActive.onclick = (e) => {
+                    e.stopPropagation();
+                    showShinyHistoryWindow();
+                };
+            }
 
             const btnSom = banner.querySelector("#btn-tocar-som-shiny");
             if (btnSom) {
@@ -7445,11 +7929,20 @@
                     ${countBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 3px; flex-shrink: 0;">
+                    <button id="btn-log-shiny" type="button" style="background: rgba(255,213,79,0.15); border: 1px solid rgba(255,213,79,0.3); color: #ffd54f; font-size: 8.5px; font-weight: bold; padding: 1px 4px; border-radius: 3px; cursor: pointer; outline: none;" title="Abrir Histórico de Shinies Encontrados">📜 Log</button>
                     <button id="btn-testar-som-shiny" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2; opacity: ${soundOpacity};" title="${soundTitle}">${soundIcon}</button>
                     ${contadorShinies > 0 ? `<button id="btn-reset-shiny-counter" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 8.5px; padding: 0 3px; border-radius: 3px; cursor: pointer; line-height: 1.2;" title="Zerar contador">🔄</button>` : ""}
                     <span style="color: #818cf8; font-size: 8.5px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px;">Ativo</span>
                 </div>
             `;
+
+            const btnLog = banner.querySelector("#btn-log-shiny");
+            if (btnLog) {
+                btnLog.onclick = (e) => {
+                    e.stopPropagation();
+                    showShinyHistoryWindow();
+                };
+            }
 
             const btnTestar = banner.querySelector("#btn-testar-som-shiny");
             if (btnTestar) {
@@ -9968,44 +10461,46 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
 
         function extractListingsFromMarketBody(body) {
             if (!body) return [];
-            const allElements = Array.from(body.querySelectorAll("*"));
             const seenKeys = new Set();
             const items = [];
 
-            allElements.forEach(el => {
-                const text = (el.innerText || "").trim();
-                if (text.includes("seu anúncio") && (text.includes("Cancelar") || text.includes("/un"))) {
-                    const childMatches = Array.from(el.querySelectorAll("*")).filter(c => c.innerText && c.innerText.includes("seu anúncio") && (c.innerText.includes("Cancelar") || c.innerText.includes("/un")));
-                    if (childMatches.length > 0) return;
+            // Procura todos os botões ou elementos de cancelamento ("Cancelar") no DOM do mercado do jogo
+            const cancelElements = Array.from(body.querySelectorAll("button, div, a, span")).filter(el => {
+                const txt = (el.innerText || el.textContent || "").trim();
+                return txt === "Cancelar" || txt === "Cancel";
+            });
 
-                    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-                    if (lines.length < 2) return;
+            cancelElements.forEach(btn => {
+                const card = btn.closest(".card, .item, .listing, [class*='card'], [class*='item'], div[style*='border']") || btn.parentElement?.parentElement || btn.parentElement;
+                if (!card) return;
 
-                    const name = lines[0] && !lines[0].includes("MEUS ANÚNCIOS") && !lines[0].includes("Cards") ? lines[0] : (lines[1] || "Item");
-                    const qtyMatch = text.match(/([\d.]+)\s*(?:×|x)/i) || text.match(/Qtd:\s*([\d.]+)/i);
-                    const quantity = qtyMatch ? Number(qtyMatch[1].replace(/\./g, "")) : 1;
+                const text = (card.innerText || card.textContent || "").trim();
+                const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+                if (lines.length === 0) return;
 
-                    const priceMatch = text.match(/([\d.]+)\s*\/\s*un/i) || text.match(/([\d.]+)/);
-                    const price = priceMatch ? Number(priceMatch[1].replace(/\./g, "")) : 0;
-                    const isDiamond = text.toLowerCase().includes("diamond") || Boolean(el.querySelector("img[src*='diamond']"));
+                let name = lines.find(l => l !== "Cancelar" && l !== "Cancel" && !l.startsWith("Qtd:") && !l.startsWith("x") && !/^\d+$/.test(l) && !l.includes("💎") && !l.includes("$")) || "Item";
 
-                    const imgEl = el.querySelector("img") || el.parentElement?.querySelector("img");
-                    const iconUrl = imgEl ? imgEl.src : "";
-                    const origCancelBtn = Array.from(el.querySelectorAll("button, a, div")).find(b => b.innerText && b.innerText.trim() === "Cancelar")
-                        || (el.innerText.includes("Cancelar") ? el : null);
+                const qtyMatch = text.match(/Qtd:\s*([\d.]+)/i) || text.match(/([\d.]+)\s*(?:×|x)/i);
+                const quantity = qtyMatch ? Number(qtyMatch[1].replace(/\./g, "")) : 1;
 
-                    const uniqueKey = `${name}_${price}_${quantity}`;
-                    if (!seenKeys.has(uniqueKey)) {
-                        seenKeys.add(uniqueKey);
-                        items.push({
-                            name,
-                            price,
-                            quantity,
-                            currency: isDiamond ? "DIAMONDS" : "GOLD",
-                            iconUrl,
-                            origCancelBtn
-                        });
-                    }
+                const isDiamond = text.includes("💎") || text.toLowerCase().includes("diamond") || Boolean(card.querySelector("img[src*='diamond']"));
+                const priceMatch = text.match(/(?:💎|\$)\s*([\d.]+)/) || text.match(/([\d.]+)\s*\/\s*un/i) || text.match(/([\d.]+)/);
+                const price = priceMatch ? Number(priceMatch[1].replace(/\./g, "")) : 0;
+
+                const imgEl = card.querySelector("img") || card.parentElement?.querySelector("img");
+                const iconUrl = imgEl ? imgEl.src : "";
+
+                const uniqueKey = `${name}_${price}_${quantity}_${items.length}`;
+                if (!seenKeys.has(uniqueKey)) {
+                    seenKeys.add(uniqueKey);
+                    items.push({
+                        name,
+                        price,
+                        quantity,
+                        currency: isDiamond ? "DIAMONDS" : "GOLD",
+                        iconUrl,
+                        origCancelBtn: btn
+                    });
                 }
             });
 
@@ -10060,13 +10555,16 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
             return items;
         }
 
-        const loadMyListings = async () => {
+        const loadMyListings = async (forceRefresh = false) => {
             status.textContent = "Carregando meus anúncios...";
             list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando meus anúncios...</div>`;
             try {
-                let myListings = [];
+                if (forceRefresh) {
+                    latestMyListingsData = null;
+                }
 
-                if (Array.isArray(latestMyListingsData) && latestMyListingsData.length > 0) {
+                let myListings = [];
+                if (!forceRefresh && Array.isArray(latestMyListingsData) && latestMyListingsData.length > 0) {
                     myListings = latestMyListingsData;
                 }
 
@@ -10079,11 +10577,15 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                     }
                 }
 
-                if (myListings.length === 0) {
+                if (myListings.length === 0 || forceRefresh) {
                     const win = await ensureGameMarketTab("Meus Anúncios").catch(() => null);
                     const body = await waitForGameMarketBody(win, 1500).catch(() => null);
                     if (body) {
-                        myListings = extractListingsFromMarketBody(body);
+                        const domItems = extractListingsFromMarketBody(body);
+                        if (domItems.length > 0) {
+                            myListings = domItems;
+                            latestMyListingsData = domItems;
+                        }
                     }
                 }
 
@@ -10267,50 +10769,151 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         };
 
         const loadAnnounceView = async () => {
-            status.textContent = "Selecione um item do inventário para criar um anúncio.";
-            list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando seu inventário...</div>`;
+            status.textContent = "Carregando seus itens e Pokémon para anúncio...";
+            list.innerHTML = `<div style="color:#94a3b8;text-align:center;padding:24px;grid-column:1/-1;font-size:13px;">Carregando seus itens e Pokémon...</div>`;
             try {
                 ensureGameMarketTab("Anunciar").catch(() => { });
-                let invList = [];
-                try {
-                    invList = await requestGameEvent("inventory", "inv-get", latestInventory).catch(() => readSellableInventoryFromDOM());
-                } catch (e) {
-                    invList = await readSellableInventoryFromDOM();
-                }
+
+                const [inventoryRes, pokemonRes, itemCatalogRes, ballCatalogRes] = await Promise.all([
+                    requestGameEvent("inventory", "inv-get", latestInventory).catch(() => readSellableInventoryFromDOM()),
+                    requestGameEvent("pokes", "pokes-get", latestPokemon, 2500).catch(() => []),
+                    fetch("https://poke.idleworld.online/game/items.json").then(r => r.json()).catch(() => ({ items: [] })),
+                    gameApiRequest("/api/game/balls").catch(() => ({ catalog: [], counts: {} }))
+                ]);
+
+                const itemMap = new Map((itemCatalogRes?.items || []).map(it => [String(it.id), it]));
+                const rawInv = Array.isArray(inventoryRes) ? inventoryRes : (latestInventory || []);
+                const rawPokes = Array.isArray(pokemonRes) ? pokemonRes : (latestPokemon || []);
+
+                let sellEntries = [];
+
+                const normalizeItemIcon = (entry, catalogItem = {}) => {
+                    if (entry?.icon && typeof entry.icon === "string" && !entry.icon.includes("undefined")) return entry.icon;
+                    if (entry?.image && typeof entry.image === "string" && !entry.image.includes("undefined")) return entry.image;
+                    if (entry?.iconUrl && typeof entry.iconUrl === "string" && !entry.iconUrl.includes("undefined")) return entry.iconUrl;
+                    if (catalogItem?.icon) {
+                        if (/^(https?:)?\//.test(catalogItem.icon)) return catalogItem.icon;
+                        return `/assets/items/${String(catalogItem.icon).replace(/^\/+/, '')}`;
+                    }
+                    const id = entry?.itemId || entry?.id || entry?.refId || catalogItem?.id;
+                    if (id) return `/assets/items/${id}.png`;
+                    return "/assets/markitems/pokeball.png";
+                };
+
+                // 1. Processar Itens Normais do Inventário
+                rawInv.filter(entry => Number(entry.quantity || entry.qty || 0) > 0).forEach(entry => {
+                    const itemIdNum = Number(entry.itemId || entry.id);
+                    if (!itemIdNum) return;
+                    const itemIdStr = String(itemIdNum);
+                    const catalogItem = itemMap.get(itemIdStr) || {};
+                    const name = catalogItem.name || entry.name || `Item ${itemIdStr}`;
+                    const icon = normalizeItemIcon(entry, catalogItem);
+                    sellEntries.push({
+                        kind: "item",
+                        marketKind: "item",
+                        refId: itemIdNum,
+                        name,
+                        icon,
+                        quantity: Number(entry.quantity || entry.qty || 1)
+                    });
+                });
+
+                // 2. Processar Poké Bolas do Catálogo de Bolas
+                const balls = Array.isArray(ballCatalogRes?.catalog) ? ballCatalogRes.catalog : (ballCatalogRes?.catalog?.balls || []);
+                balls.forEach(ball => {
+                    const count = Number(ballCatalogRes?.counts?.[String(ball.id)] || 0);
+                    if (count > 0) {
+                        const icon = ball.iconUrl || (ball.icon ? `/assets/items/${String(ball.icon).replace(/^\/+/, '')}` : `/assets/items/${ball.id}.png`);
+                        sellEntries.push({
+                            kind: "item",
+                            marketKind: "ball",
+                            refId: Number(ball.id),
+                            name: ball.name || `Bola ${ball.id}`,
+                            icon,
+                            quantity: count
+                        });
+                    }
+                });
+
+                // 3. Processar Pokémon Elegíveis (não iniciais, não anunciados)
+                rawPokes.filter(poke => !poke.starter && !poke.market && !poke.listed).forEach(poke => {
+                    let pokeIcon = "";
+                    if (typeof obterUrlsSprite === "function") {
+                        const urls = obterUrlsSprite(poke.speciesId, poke.shiny);
+                        pokeIcon = urls?.still || urls?.anim || "";
+                    }
+                    if (!pokeIcon && poke.speciesId) {
+                        pokeIcon = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${poke.speciesId}.png`;
+                    }
+                    sellEntries.push({
+                        ...poke,
+                        kind: "pokemon",
+                        name: poke.name || `Pokémon #${poke.speciesId}`,
+                        icon: pokeIcon || "/assets/markitems/pokeball.png",
+                        quantity: 1,
+                        refId: poke.id,
+                        capturedId: poke.id
+                    });
+                });
 
                 list.innerHTML = "";
 
                 const wrapper = document.createElement("div");
-                wrapper.style.cssText = "background:#141924;border:1px solid #212c3e;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;grid-column:1/-1;max-width:560px;margin:0 auto;width:100%;box-sizing:border-box;";
+                wrapper.style.cssText = "background:#141924;border:1px solid #212c3e;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;grid-column:1/-1;max-width:680px;margin:0 auto;width:100%;box-sizing:border-box;";
 
-                let selectedItem = null;
+                let selectedEntry = null;
+
+                const pokemonTypes = [...new Set(rawPokes.flatMap(p => [p.type1, p.type2]).filter(Boolean))].sort();
 
                 wrapper.innerHTML = `
                     <div style="font-weight:800;font-size:14px;color:#fcd34d;display:flex;align-items:center;gap:8px;">
-                        <span>📢</span> <span>Criar Novo Anúncio no Mercado</span>
+                        <span>📢</span> <span>Criar Novo Anúncio no Mercado Global</span>
                     </div>
 
-                    <div style="display:flex;flex-direction:column;gap:6px;">
-                        <label style="font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;">1. Escolha o Item para Vender:</label>
-                        <div class="announce-items-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(64px, 1fr));gap:6px;max-height:160px;overflow-y:auto;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:8px;">
-                            ${(Array.isArray(invList) ? invList : []).map(it => {
-                    const icon = getItemIconUrl(it);
-                    return `
-                                    <div class="announce-item-slot" data-id="${it.id || it.itemId}" data-name="${it.name}" data-qty="${it.quantity || it.qty || 1}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;background:#141924;border:1px solid #212c3e;border-radius:6px;padding:6px;cursor:pointer;position:relative;" title="${it.name}">
-                                        <img src="${icon}" style="width:28px;height:28px;object-fit:contain;">
-                                        <span style="font-size:9px;color:#fff;font-weight:800;margin-top:2px;">x${it.quantity || it.qty || 1}</span>
-                                    </div>`;
-                }).join('')}
+                    <!-- Controles de Filtro para Venda -->
+                    <div style="display:flex;flex-direction:column;gap:8px;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:10px;">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <select class="announce-kind-select" style="background:#141924;color:#f8fafc;border:1px solid #212c3e;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:800;outline:none;">
+                                <option value="item">🧪 Itens & Poké Bolas</option>
+                                <option value="pokemon">🐉 Pokémon</option>
+                            </select>
+                            <input class="announce-search-input" type="search" placeholder="Buscar para anunciar..." style="flex:1;min-width:160px;background:#141924;color:#fff;border:1px solid #212c3e;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;outline:none;">
+                        </div>
+
+                        <!-- Filtros Específicos para Pokémon -->
+                        <div class="announce-poke-filters" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;padding-top:6px;border-top:1px solid #1c2637;">
+                            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#f1c644;font-weight:800;">
+                                <span>IV Mín:</span>
+                                <input class="announce-iv-min" type="number" min="0" max="192" placeholder="0" style="width:46px;background:#141924;border:1px solid #212c3e;border-radius:4px;padding:3px;color:#fff;text-align:center;font-weight:700;">
+                            </div>
+                            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#38bdf8;font-weight:800;">
+                                <span>Qualidade Mín:</span>
+                                <input class="announce-qual-min" type="number" min="0" step="0.01" placeholder="0" style="width:54px;background:#141924;border:1px solid #212c3e;border-radius:4px;padding:3px;color:#fff;text-align:center;font-weight:700;">
+                            </div>
+                            <select class="announce-type-select" style="background:#141924;color:#94a3b8;border:1px solid #212c3e;border-radius:4px;padding:3px 6px;font-size:11px;font-weight:700;outline:none;">
+                                <option value="">Todos os Tipos</option>
+                                ${pokemonTypes.map(t => `<option value="${t}">${t}</option>`).join('')}
+                            </select>
                         </div>
                     </div>
 
+                    <!-- Grade de Seleção de Itens / Pokémon -->
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        <div style="font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;display:flex;justify-content:space-between;">
+                            <span>1. Selecione o que deseja vender:</span>
+                            <span class="announce-count-label" style="color:#fcd34d;">0 disponível(is)</span>
+                        </div>
+                        <div class="announce-items-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(70px, 1fr));gap:6px;max-height:180px;overflow-y:auto;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:8px;"></div>
+                    </div>
+
+                    <!-- Form de Definição de Preço e Quantidade -->
                     <div class="announce-form-box" style="display:none;flex-direction:column;gap:10px;border-top:1px solid #212c3e;padding-top:12px;">
-                        <div style="font-weight:800;font-size:13px;color:#38bdf8;" class="announce-selected-title">Item selecionado: -</div>
+                        <div style="font-weight:800;font-size:13px;color:#38bdf8;" class="announce-selected-title">Selecionado: -</div>
 
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                             <div>
                                 <label style="font-size:11px;font-weight:800;color:#94a3b8;display:block;margin-bottom:4px;">Preço Unitário:</label>
-                                <input class="announce-price-input" type="number" min="1" value="10" style="width:100%;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:7px;color:#fff;font-weight:800;font-size:12px;outline:none;">
+                                <input class="announce-price-input" type="number" min="1" value="100" style="width:100%;background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:7px;color:#fff;font-weight:800;font-size:12px;outline:none;">
                             </div>
                             <div>
                                 <label style="font-size:11px;font-weight:800;color:#94a3b8;display:block;margin-bottom:4px;">Quantidade:</label>
@@ -10318,7 +10921,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                             </div>
                         </div>
 
-                        <div style="display:flex;align-items:center;justify-content:space-between;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:8px 12px;margin-top:4px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;background:#0b0e17;border:1px solid #28374d;border-radius:8px;padding:8px 12px;margin-top:2px;">
                             <span style="font-size:12px;color:#94a3b8;font-weight:700;">Moeda de Recebimento:</span>
                             <select class="announce-currency-select" style="background:#141924;color:#4ade80;border:1px solid #212c3e;border-radius:6px;padding:4px 8px;font-size:12px;font-weight:800;outline:none;">
                                 <option value="GOLD">$ Gold</option>
@@ -10333,6 +10936,14 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
 
                 list.appendChild(wrapper);
 
+                const kindSelect = wrapper.querySelector(".announce-kind-select");
+                const searchInput = wrapper.querySelector(".announce-search-input");
+                const pokeFiltersBox = wrapper.querySelector(".announce-poke-filters");
+                const ivMinInput = wrapper.querySelector(".announce-iv-min");
+                const qualMinInput = wrapper.querySelector(".announce-qual-min");
+                const typeSelect = wrapper.querySelector(".announce-type-select");
+                const itemsGrid = wrapper.querySelector(".announce-items-grid");
+                const countLabel = wrapper.querySelector(".announce-count-label");
                 const formBox = wrapper.querySelector(".announce-form-box");
                 const selectedTitle = wrapper.querySelector(".announce-selected-title");
                 const priceInput = wrapper.querySelector(".announce-price-input");
@@ -10340,47 +10951,114 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                 const currencySelect = wrapper.querySelector(".announce-currency-select");
                 const submitBtn = wrapper.querySelector(".announce-submit-btn");
 
-                wrapper.querySelectorAll(".announce-item-slot").forEach(slot => {
-                    slot.addEventListener("click", () => {
-                        wrapper.querySelectorAll(".announce-item-slot").forEach(s => s.style.borderColor = "#212c3e");
-                        slot.style.borderColor = "#fcd34d";
-                        selectedItem = {
-                            id: slot.dataset.id,
-                            name: slot.dataset.name,
-                            maxQty: parseInt(slot.dataset.qty, 10) || 1
-                        };
-                        selectedTitle.textContent = `Item Selecionado: ${selectedItem.name} (Máx: ${selectedItem.maxQty})`;
-                        qtyInput.max = selectedItem.maxQty;
-                        qtyInput.value = 1;
-                        formBox.style.display = "flex";
+                const renderAnnounceGrid = () => {
+                    const currentKind = kindSelect.value;
+                    const query = searchInput.value.trim().toLowerCase();
+                    const isPoke = currentKind === "pokemon";
+                    pokeFiltersBox.style.display = isPoke ? "flex" : "none";
+
+                    const filtered = sellEntries.filter(entry => entry.kind === currentKind)
+                        .filter(entry => !query || entry.name.toLowerCase().includes(query))
+                        .filter(entry => !isPoke || ivMinInput.value === "" || Number(entry.ivTotal ?? 0) >= Number(ivMinInput.value))
+                        .filter(entry => !isPoke || qualMinInput.value === "" || Number(entry.quality ?? 0) >= Number(qualMinInput.value))
+                        .filter(entry => !isPoke || !typeSelect.value || entry.type1 === typeSelect.value || entry.type2 === typeSelect.value)
+                        .sort((a, b) => isPoke
+                            ? Number(b.ivTotal ?? 0) - Number(a.ivTotal ?? 0) || Number(b.quality ?? 0) - Number(a.quality ?? 0) || Number(b.level ?? 1) - Number(a.level ?? 1)
+                            : a.name.localeCompare(b.name, "pt-BR"));
+
+                    countLabel.textContent = `${filtered.length} disponível(is)`;
+                    itemsGrid.innerHTML = "";
+
+                    if (filtered.length === 0) {
+                        itemsGrid.innerHTML = `<div style="color:#94a3b8;font-size:11px;grid-column:1/-1;text-align:center;padding:12px;">Nenhum item/Pokémon encontrado nesta categoria.</div>`;
+                        return;
+                    }
+
+                    filtered.forEach(entry => {
+                        const slot = document.createElement("div");
+                        const isSelected = selectedEntry === entry;
+                        slot.style.cssText = `display:flex;flex-direction:column;align-items:center;justify-content:center;background:${isSelected ? '#332a15' : '#141924'};border:1px solid ${isSelected ? '#fcd34d' : '#212c3e'};border-radius:6px;padding:6px;cursor:pointer;position:relative;`;
+
+                        let subText = isPoke ? `Nv ${entry.level || 1}` : `x${entry.quantity}`;
+                        if (isPoke && entry.shiny) subText += " ✨";
+
+                        slot.innerHTML = `
+                            <img src="${entry.icon}" style="width:32px;height:32px;object-fit:contain;" onerror="this.src='/assets/markitems/pokeball.png'">
+                            <span style="font-size:9px;color:${isSelected ? '#fcd34d' : '#fff'};font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;" title="${entry.name}">${entry.name}</span>
+                            <span style="font-size:8px;color:#94a3b8;font-weight:700;">${subText}</span>
+                        `;
+
+                        slot.addEventListener("click", () => {
+                            selectedEntry = entry;
+                            const isPokeEntry = entry.kind === "pokemon";
+                            if (isPokeEntry) {
+                                selectedTitle.textContent = `Pokémon Selecionado: ${entry.name} (Nv ${entry.level || 1} · IV ${entry.ivTotal ?? 0}/192 · Q ${Number(entry.quality || 0).toFixed(2)}${entry.shiny ? ' · ✨ Shiny' : ''})`;
+                                qtyInput.value = 1;
+                                qtyInput.disabled = true;
+                            } else {
+                                selectedTitle.textContent = `Item Selecionado: ${entry.name} (Estoque: ${entry.quantity})`;
+                                qtyInput.disabled = false;
+                                qtyInput.max = entry.quantity;
+                                qtyInput.value = Math.min(Number(qtyInput.value) || 1, entry.quantity);
+                            }
+                            formBox.style.display = "flex";
+                            renderAnnounceGrid();
+                        });
+
+                        itemsGrid.appendChild(slot);
+                    });
+                };
+
+                [kindSelect, searchInput, ivMinInput, qualMinInput, typeSelect].forEach(ctrl => {
+                    ctrl.addEventListener("input", () => {
+                        selectedEntry = null;
+                        formBox.style.display = "none";
+                        renderAnnounceGrid();
                     });
                 });
 
                 submitBtn.addEventListener("click", async () => {
-                    if (!selectedItem) return alert("Selecione um item para anunciar!");
-                    const price = parseInt(priceInput.value, 10) || 0;
-                    const quantity = parseInt(qtyInput.value, 10) || 1;
+                    if (!selectedEntry) return alert("Selecione um item ou Pokémon para anunciar!");
+                    const price = Math.floor(Number(priceInput.value));
+                    if (!price || price < 1) return alert("Digite um preço válido maior que 0!");
+
+                    const isPokemon = selectedEntry.kind === "pokemon";
+                    const quantity = isPokemon ? 1 : Math.max(1, Math.min(selectedEntry.quantity, Math.floor(Number(qtyInput.value) || 1)));
                     const currency = currencySelect.value;
-                    if (price <= 0) return alert("Digite um preço válido maior que 0!");
+                    const currencyName = currency === "DIAMONDS" ? "diamante(s)" : "dólar(es)";
+
+                    if (!confirm(`Deseja anunciar ${quantity}× ${selectedEntry.name} por $ ${price.toLocaleString("pt-BR")} ${currencyName}?`)) {
+                        return;
+                    }
 
                     submitBtn.disabled = true;
                     submitBtn.textContent = "Publicando...";
+
                     try {
+                        const marketAction = isPokemon
+                            ? { action: "sell-pokemon", capturedId: selectedEntry.capturedId || selectedEntry.id, price, currency }
+                            : { action: "sell", kind: selectedEntry.marketKind || "item", refId: selectedEntry.refId, quantity, price, currency };
+
+                        // Envia mensagem via WebSocket se disponível como fallback/notificação imediata
+                        if (isPokemon) {
+                            sendGameMessage({ type: "sell-poke", pokeId: selectedEntry.capturedId || selectedEntry.id });
+                        } else {
+                            sendGameMessage({ type: "sell-item", itemId: selectedEntry.refId, quantity });
+                            sendGameMessage({ type: "sell", itemId: selectedEntry.refId, quantity });
+                        }
+
+                        // Requisição principal HTTP para action do mercado
                         await gameApiRequest("/api/game/market/action", {
                             method: "POST",
-                            body: JSON.stringify({
-                                action: "sell",
-                                itemId: selectedItem.id,
-                                price,
-                                quantity,
-                                currency
-                            })
+                            body: JSON.stringify(marketAction)
                         });
-                        alert("Anúncio criado com sucesso!");
+
+                        alert(`Anúncio publicado com sucesso:\n${quantity}x ${selectedEntry.name}`);
+                        latestMyListingsData = null;
                         activeMode = "meus";
                         updateSidebarActionStyles();
                         topControls.style.display = "none";
-                        loadMyListings();
+                        await loadMyListings(true);
                     } catch (err) {
                         alert("Erro ao publicar anúncio: " + err.message);
                         submitBtn.disabled = false;
@@ -10388,8 +11066,11 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                     }
                 });
 
+                status.textContent = "Selecione o que deseja vender e defina o preço de anúncio.";
+                renderAnnounceGrid();
+
             } catch (error) {
-                status.textContent = "Erro ao carregar inventário para anúncio: " + error.message;
+                status.textContent = "Erro ao carregar inventário e Pokémon para anúncio: " + error.message;
             }
         };
 
@@ -10479,7 +11160,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
         backdrop.addEventListener("click", event => { if (event.target === backdrop) close(); });
         backdrop.querySelector(".market-refresh").addEventListener("click", () => {
             updateCharacterBalance();
-            if (activeMode === "meus") loadMyListings();
+            if (activeMode === "meus") loadMyListings(true);
             else if (activeMode === "historico") loadMarketHistory();
             else if (activeMode === "anunciar") loadAnnounceView();
             else load();
@@ -11430,12 +12111,64 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
     }
 
     function injetarBotoesDockLojasEDepot() {
-        // Funcionalidades desativadas visualmente a pedido do usuário:
-        // Mantém todo o código-fonte intacto no script, mas impede a injeção e exibição dos botões no Dock.
-        document.getElementById("dock-btn-shops-wrapper")?.remove();
-        document.getElementById("dock-btn-depot")?.remove();
-        document.getElementById("dock-shops-menu-global")?.remove();
-        return;
+        const gameDock = document.querySelector("nav.game-dock");
+        if (!gameDock) return;
+
+        if (!document.getElementById("dock-btn-shops-wrapper")) {
+            const wrap = document.createElement("div");
+            wrap.id = "dock-btn-shops-wrapper";
+            wrap.className = "dock-poke-wrap script-shop-wrap";
+            wrap.style.cssText = "position:relative;display:inline-flex;align-items:center;";
+
+            const btnShops = document.createElement("button");
+            btnShops.id = "dock-btn-shops";
+            btnShops.className = "dock-btn";
+            btnShops.type = "button";
+            btnShops.textContent = "🏪";
+            btnShops.title = "Lojas & Vendas Portáteis";
+            btnShops.style.cssText = "background:transparent;border:0;box-shadow:none;font-size:16px;cursor:pointer;padding:4px 6px;";
+
+            btnShops.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const menu = obterOuCriarMenuDockLojasGlobal();
+                const estaAberto = menu.style.display === "block";
+                if (estaAberto) {
+                    menu.style.display = "none";
+                } else {
+                    const rect = btnShops.getBoundingClientRect();
+                    menu.style.top = (rect.bottom + 6) + "px";
+                    const leftPos = Math.max(10, Math.min(rect.left, window.innerWidth - 200));
+                    menu.style.left = leftPos + "px";
+                    menu.style.display = "block";
+                }
+            });
+
+            const onDocClickShops = (e) => {
+                const menu = document.getElementById("dock-shops-menu-global");
+                if (menu && !btnShops.contains(e.target) && !menu.contains(e.target)) {
+                    menu.style.display = "none";
+                }
+            };
+            document.removeEventListener("click", window._dockShopsMenuDismiss);
+            window._dockShopsMenuDismiss = onDocClickShops;
+            document.addEventListener("click", onDocClickShops);
+
+            wrap.appendChild(btnShops);
+            gameDock.appendChild(wrap);
+        }
+
+        if (!document.getElementById("dock-btn-depot")) {
+            const btnDepot = document.createElement("button");
+            btnDepot.id = "dock-btn-depot";
+            btnDepot.className = "dock-btn";
+            btnDepot.type = "button";
+            btnDepot.textContent = "📦";
+            btnDepot.title = "Depot Portátil";
+            btnDepot.style.cssText = "background:transparent;border:0;box-shadow:none;font-size:16px;cursor:pointer;padding:4px 6px;";
+            btnDepot.addEventListener("click", showPortableDepot);
+            gameDock.appendChild(btnDepot);
+        }
     }
 
     // -------------------------------------------------------------------------
