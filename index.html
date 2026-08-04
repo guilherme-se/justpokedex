@@ -776,6 +776,29 @@
             <div class="grid-3">
                 <div class="card card-gold-border">
                     <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="card-icon">⏱️</div>
+                        <span class="tag tag-excepcional"
+                            style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 800;">✨
+                            NOVO</span>
+                    </div>
+                    <h3 class="card-title">Tracker de Hunt</h3>
+                    <p class="card-p">Acompanhe a sessão de caça em tempo real: <strong>XP/h</strong> e <strong>abates/h</strong> em janela móvel, barras de progresso do treinador e do Pokémon ativo, e o tempo estimado até o próximo nível ou até um nível-alvo que você escolhe. Mostra ainda de onde vem cada parte do XP (base, VIP, boost, streak, evento, dia do tipo) e o loot acumulado.<br><small style="color: var(--accent-gold); font-weight: 700;">⏸️ Pausa sozinho ao sair da hunt e retoma ao voltar</small>
+                    </p>
+                </div>
+
+                <div class="card card-gold-border">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div class="card-icon">⬆️</div>
+                        <span class="tag tag-excepcional"
+                            style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 800;">✨
+                            NOVO</span>
+                    </div>
+                    <h3 class="card-title">Calculadora de XP</h3>
+                    <p class="card-p">Informe o nível atual e o alvo para saber exatamente quanto XP falta, com gráfico da curva destacando o trecho a percorrer, custo nível a nível e a conversão para número de abates. Considera os multiplicadores de <strong>VIP, XP Boost, Pokédex e Streak Points</strong>.
+                    </p>
+                </div>
+                <div class="card card-gold-border">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
                         <div class="card-icon">🏪</div>
                         <span class="tag tag-excepcional"
                             style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 800;">✨
@@ -954,6 +977,15 @@
             </div>
 
             <div class="grid-2">
+                <div class="card">
+                    <h3 class="card-title">3. Curva de XP e Níveis</h3>
+                    <p class="card-p">O XP acumulado para alcançar um nível segue uma curva cúbica, <strong>sem teto de nível</strong>:</p>
+                    <p class="card-p" style="text-align: center;"><code>XP(L) = round( 50/3 × (L³ − 6L² + 17L − 12) )</code></p>
+                    <p class="card-p">O custo de um nível isolado tem forma fechada:</p>
+                    <p class="card-p" style="text-align: center;"><code>custo(L) = 50 × (L² − 5L + 8)</code></p>
+                    <p class="card-p">Treinador e Pokémon usam a <strong>mesma curva</strong>, e o campo <code>xp</code> enviado pelo servidor é acumulado desde o Nv 1 — não o resto dentro do nível. Os multiplicadores somam entre si antes de multiplicar o XP base do abate.</p>
+                </div>
+
                 <div class="card">
                     <h3 class="card-title">1. Equação Direta de Atributo</h3>
                     <p class="card-p">Calcula o valor do atributo final exibido no jogo a partir dos atributos base,

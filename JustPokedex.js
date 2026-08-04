@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JustPokedex
 // @namespace    https://github.com/guilherme-se/justpokedex
-// @version      3.0.1
-// @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil e Detector de Shinies
+// @version      3.4.1
+// @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil, Detector de Shinies, Calculadora de XP e Tracker de Hunt
 // @match        https://*.idleworld.online/*
 // @grant        none
 // @downloadURL  https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js
@@ -137,7 +137,7 @@
         }
     };
 
-    const CURRENT_SCRIPT_VERSION = "3.0.1";
+    const CURRENT_SCRIPT_VERSION = "3.4.1";
     const GITHUB_RAW_URL = "https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js";
     const AUTO_UPDATE_SETTING_KEY = "justpokedex-auto-update-enabled";
 
@@ -2838,6 +2838,24 @@
                         <span class="tab-icon">🎯</span>
                         Análise de Captura
                     </button>
+
+                    <button
+                        class="tab-button"
+                        data-tab="xp"
+                        type="button"
+                    >
+                        <span class="tab-icon">⬆</span>
+                        Calculadora de XP
+                    </button>
+
+                    <button
+                        class="tab-button"
+                        data-tab="hunt"
+                        type="button"
+                    >
+                        <span class="tab-icon">⏱</span>
+                        Hunt
+                    </button>
                 </div>
 
                 <div
@@ -2905,6 +2923,164 @@
                 >
                     <div id="catch-analyzer-content">
                         <!-- Conteúdo da análise de captura será renderizado dinamicamente -->
+                    </div>
+                </div>
+
+                <div
+                    id="tab-xp"
+                    class="tab-content"
+                >
+                    <div class="xp-wrap">
+                        <div class="xp-formula">XP(L) = round( 50/3 · (L³ − 6L² + 17L − 12) )</div>
+
+                        <div class="xp-row">
+                            <div class="xp-field">
+                                <label for="xp-de">Nível atual</label>
+                                <div class="xp-step">
+                                    <button type="button" data-xp-step="-1" data-xp-target="xp-de" title="Diminuir">−</button>
+                                    <input id="xp-de" type="number" min="1" max="9999" value="5" inputmode="numeric">
+                                    <button type="button" data-xp-step="1" data-xp-target="xp-de" title="Aumentar">+</button>
+                                </div>
+                            </div>
+
+                            <div class="xp-field">
+                                <label for="xp-ate">Nível alvo</label>
+                                <div class="xp-step">
+                                    <button type="button" data-xp-step="-1" data-xp-target="xp-ate" title="Diminuir">−</button>
+                                    <input id="xp-ate" type="number" min="2" max="10000" value="30" inputmode="numeric">
+                                    <button type="button" data-xp-step="1" data-xp-target="xp-ate" title="Aumentar">+</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="button" id="xp-usar-lido" class="xp-link">↧ usar o nível do Pokémon lido</button>
+
+                        <div class="xp-result">
+                            <div class="xp-result-k">XP necessário</div>
+                            <div class="xp-big" id="xp-big">0</div>
+                            <div class="xp-warn" id="xp-warn">O nível alvo precisa ser maior que o atual.</div>
+                            <div class="xp-facts">
+                                <div><span>Níveis</span><b id="xp-f-niveis">—</b></div>
+                                <div><span>Média/nv</span><b id="xp-f-media">—</b></div>
+                                <div><span>Último nv</span><b id="xp-f-ultimo">—</b></div>
+                            </div>
+                        </div>
+
+                        <svg id="xp-chart" class="xp-chart" viewBox="0 0 300 92" aria-hidden="true"></svg>
+                        <div class="xp-chart-legend">
+                            <span><i class="xp-sw xp-sw-hot"></i>trecho a percorrer</span>
+                            <span><i class="xp-sw xp-sw-wedge"></i>XP do trecho</span>
+                        </div>
+
+                        <div class="xp-sec">Quantos abates isso dá</div>
+
+                        <div class="xp-row">
+                            <div class="xp-field">
+                                <label for="xp-abate">XP por abate</label>
+                                <input id="xp-abate" class="xp-input" type="number" min="1" value="120" inputmode="numeric">
+                            </div>
+                            <div class="xp-field">
+                                <label for="xp-streak">Streak Points</label>
+                                <input id="xp-streak" class="xp-input" type="number" min="0" value="0" inputmode="numeric">
+                            </div>
+                        </div>
+
+                        <div class="xp-chips">
+                            <label class="xp-chip"><input type="checkbox" id="xp-vip">VIP +50%</label>
+                            <label class="xp-chip"><input type="checkbox" id="xp-boost">Boost +100%</label>
+                            <label class="xp-chip"><input type="checkbox" id="xp-dex">Dex +25%</label>
+                        </div>
+
+                        <div class="xp-facts xp-facts-tight">
+                            <div><span>Multiplicador</span><b id="xp-o-mult">×1,000</b></div>
+                            <div><span>XP/abate</span><b id="xp-o-perkill">—</b></div>
+                            <div><span>Abates</span><b id="xp-o-kills" class="xp-gold">—</b></div>
+                        </div>
+
+                        <div class="xp-sec">Custo nível a nível</div>
+                        <div class="xp-table" id="xp-table"></div>
+                    </div>
+                </div>
+
+                <div
+                    id="tab-hunt"
+                    class="tab-content"
+                >
+                    <div class="hunt-wrap">
+                        <div class="hunt-top">
+                            <span class="hunt-dot" id="hunt-dot"></span>
+                            <span class="hunt-estado" id="hunt-estado">Esperando o primeiro abate…</span>
+                            <button type="button" class="hunt-reset" id="hunt-zerar">zerar</button>
+                        </div>
+
+                        <div class="hunt-card">
+                            <div class="hunt-card-top">
+                                <span id="hunt-tr-nome">Treinador</span>
+                                <b id="hunt-tr-lv">Nv —</b>
+                            </div>
+                            <div class="hunt-bar"><i id="hunt-tr-fill"></i></div>
+                            <div class="hunt-card-bot">
+                                <span id="hunt-tr-falta">—</span>
+                                <span id="hunt-tr-eta" class="hunt-eta">—</span>
+                            </div>
+                        </div>
+
+                        <div class="hunt-card">
+                            <div class="hunt-card-top">
+                                <span id="hunt-pk-nome">Pokémon ativo</span>
+                                <b id="hunt-pk-lv">Nv —</b>
+                            </div>
+                            <div class="hunt-bar"><i id="hunt-pk-fill"></i></div>
+                            <div class="hunt-card-bot">
+                                <span id="hunt-pk-falta">—</span>
+                                <span id="hunt-pk-eta" class="hunt-eta">—</span>
+                            </div>
+                        </div>
+
+                        <div class="xp-facts xp-facts-tight">
+                            <div><span>XP / hora</span><b id="hunt-xph" class="xp-gold">—</b></div>
+                            <div><span>Abates / hora</span><b id="hunt-kph">—</b></div>
+                            <div><span>Caçando</span><b id="hunt-tempo">—</b></div>
+                        </div>
+
+                        <div class="xp-facts xp-facts-tight">
+                            <div><span>XP na sessão</span><b id="hunt-xp-sessao">—</b></div>
+                            <div><span>Abates</span><b id="hunt-abates">—</b></div>
+                            <div><span>XP / abate</span><b id="hunt-xp-abate">—</b></div>
+                        </div>
+
+                        <div class="xp-sec">Meta de nível</div>
+                        <div class="hunt-meta">
+                            <div class="hunt-meta-row">
+                                <span class="hunt-meta-k">Treinador</span>
+                                <div class="hunt-meta-in">
+                                    <span>Nv</span>
+                                    <input id="hunt-meta-tr-alvo" type="number" min="2" max="10000" inputmode="numeric">
+                                </div>
+                                <div class="hunt-meta-out">
+                                    <b id="hunt-meta-tr-tempo">—</b>
+                                    <span id="hunt-meta-tr-xp">—</span>
+                                </div>
+                            </div>
+
+                            <div class="hunt-meta-row">
+                                <span class="hunt-meta-k" id="hunt-meta-pk-k">Pokémon</span>
+                                <div class="hunt-meta-in">
+                                    <span>Nv</span>
+                                    <input id="hunt-meta-pk-alvo" type="number" min="2" max="10000" inputmode="numeric">
+                                </div>
+                                <div class="hunt-meta-out">
+                                    <b id="hunt-meta-pk-tempo">—</b>
+                                    <span id="hunt-meta-pk-xp">—</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="xp-sec">De onde vem o XP</div>
+                        <div class="hunt-partes" id="hunt-partes"></div>
+
+                        <div class="xp-sec">Loot da sessão</div>
+                        <div class="hunt-loot" id="hunt-loot"></div>
                     </div>
                 </div>
 
@@ -3107,6 +3283,9 @@
                 });
             });
 
+        configurarAbaXP();
+        configurarAbaHunt();
+
         // Debounce helper
         let searchDebounce = null;
 
@@ -3216,6 +3395,828 @@
         }
     }
 
+    // -------------------------------------------------------------------------
+    // CALCULADORA DE XP — curva cúbica sem teto
+    // XP total até o nível L = round( 50/3 * (L³ − 6L² + 17L − 12) )
+    // Custo isolado de um nível  = 50 * (L² − 5L + 8)   [forma fechada, exata]
+    // -------------------------------------------------------------------------
+
+    const XP_STORAGE_KEY = "justpokedex-xp-calc";
+    const XP_NIVEL_MAXIMO = 10000;
+
+    function xpTotalAteNivel(nivel) {
+        return Math.round(
+            (50 / 3) *
+            (nivel * nivel * nivel - 6 * nivel * nivel + 17 * nivel - 12)
+        );
+    }
+
+    function xpCustoDoNivel(nivel) {
+        return 50 * (nivel * nivel - 5 * nivel + 8);
+    }
+
+    function xpFormatar(valor) {
+        return Number(valor).toLocaleString("pt-BR");
+    }
+
+    function xpLimitar(valor, minimo, maximo) {
+        return Math.min(maximo, Math.max(minimo, valor));
+    }
+
+    function xpLerCampo(id, minimo, padrao) {
+        const el = document.getElementById(id);
+        if (!el) return padrao;
+        const valor = parseInt(el.value, 10);
+        if (!Number.isFinite(valor)) return padrao;
+        return xpLimitar(valor, minimo, XP_NIVEL_MAXIMO);
+    }
+
+    function xpSalvarEstado() {
+        try {
+            localStorage.setItem(XP_STORAGE_KEY, JSON.stringify({
+                de: document.getElementById("xp-de")?.value,
+                ate: document.getElementById("xp-ate")?.value,
+                abate: document.getElementById("xp-abate")?.value,
+                streak: document.getElementById("xp-streak")?.value,
+                vip: document.getElementById("xp-vip")?.checked,
+                boost: document.getElementById("xp-boost")?.checked,
+                dex: document.getElementById("xp-dex")?.checked
+            }));
+        } catch (e) { /* storage indisponível */ }
+    }
+
+    function xpRestaurarEstado() {
+        let dados = null;
+        try {
+            dados = JSON.parse(localStorage.getItem(XP_STORAGE_KEY) || "null");
+        } catch (e) {
+            dados = null;
+        }
+        if (!dados) return;
+
+        const texto = { "xp-de": dados.de, "xp-ate": dados.ate, "xp-abate": dados.abate, "xp-streak": dados.streak };
+        Object.keys(texto).forEach(id => {
+            const el = document.getElementById(id);
+            if (el && texto[id] !== undefined && texto[id] !== null && texto[id] !== "") {
+                el.value = texto[id];
+            }
+        });
+
+        const marcas = { "xp-vip": dados.vip, "xp-boost": dados.boost, "xp-dex": dados.dex };
+        Object.keys(marcas).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.checked = !!marcas[id];
+        });
+    }
+
+    function xpMultiplicador() {
+        let mult = 1;
+        if (document.getElementById("xp-vip")?.checked) mult += 0.5;
+        if (document.getElementById("xp-boost")?.checked) mult += 1;
+        if (document.getElementById("xp-dex")?.checked) mult += 0.25;
+
+        let pontos = parseInt(document.getElementById("xp-streak")?.value, 10);
+        if (!Number.isFinite(pontos) || pontos < 0) pontos = 0;
+
+        return mult + pontos * 0.001;
+    }
+
+    function xpDesenharCurva(de, ate) {
+        const svg = document.getElementById("xp-chart");
+        if (!svg) return;
+
+        const L = 300, A = 92, margemBaixo = 8, margemTopo = 6;
+        const inicio = 1;
+        const fim = Math.max(ate + Math.max(3, Math.ceil(ate * 0.22)), de + 5);
+        const teto = xpTotalAteNivel(fim) || 1;
+
+        const px = nivel => ((nivel - inicio) / (fim - inicio)) * L;
+        const py = valor => A - margemBaixo - (valor / teto) * (A - margemTopo - margemBaixo);
+
+        const caminho = (a, b, passos) => {
+            const partes = [];
+            for (let i = 0; i <= passos; i++) {
+                const nivel = a + (b - a) * (i / passos);
+                partes.push(
+                    (i ? "L" : "M") +
+                    px(nivel).toFixed(1) + " " +
+                    py(xpTotalAteNivel(nivel)).toFixed(1)
+                );
+            }
+            return partes.join(" ");
+        };
+
+        const base = A - margemBaixo;
+        const destacado = ate > de;
+        const trecho = destacado ? caminho(de, ate, 60) : "";
+        const area = destacado
+            ? trecho + " L" + px(ate).toFixed(1) + " " + base + " L" + px(de).toFixed(1) + " " + base + " Z"
+            : "";
+
+        svg.innerHTML =
+            '<line x1="0" y1="' + base + '" x2="' + L + '" y2="' + base + '" stroke="rgba(255,255,255,.12)" stroke-width="1"/>' +
+            (destacado ? '<path d="' + area + '" fill="rgba(241,198,68,.18)"/>' : "") +
+            '<path d="' + caminho(inicio, fim, 110) + '" fill="none" stroke="rgba(255,255,255,.20)" stroke-width="1.5"/>' +
+            (destacado ? '<path d="' + trecho + '" fill="none" stroke="#f1c644" stroke-width="2.2" stroke-linecap="round"/>' : "") +
+            '<circle cx="' + px(de).toFixed(1) + '" cy="' + py(xpTotalAteNivel(de)).toFixed(1) + '" r="3" fill="#101827" stroke="#f1c644" stroke-width="1.8"/>' +
+            '<circle cx="' + px(ate).toFixed(1) + '" cy="' + py(xpTotalAteNivel(ate)).toFixed(1) + '" r="3" fill="#101827" stroke="#f1c644" stroke-width="1.8"/>';
+    }
+
+    function xpMontarTabela(de, ate, valido, xpPorAbate) {
+        const alvo = document.getElementById("xp-table");
+        if (!alvo) return;
+
+        if (!valido) {
+            alvo.innerHTML = '<div class="xp-tr"><span>—</span><span>—</span><span>—</span></div>';
+            return;
+        }
+
+        const limite = Math.min(ate, de + 60);
+        const linhas = ['<div class="xp-tr xp-th"><span>Nível</span><span>Custo</span><span>Abates</span></div>'];
+        let acumulado = 0;
+
+        for (let nivel = de + 1; nivel <= limite; nivel++) {
+            const custo = xpCustoDoNivel(nivel);
+            acumulado += custo;
+            linhas.push(
+                '<div class="xp-tr"><b>' + nivel + '</b>' +
+                '<span>' + xpFormatar(custo) + '</span>' +
+                '<span>' + (xpPorAbate > 0 ? xpFormatar(Math.ceil(custo / xpPorAbate)) : "—") + '</span></div>'
+            );
+        }
+
+        if (limite < ate) {
+            linhas.push('<div class="xp-tr"><span>…</span><span>primeiros 60 níveis</span><span></span></div>');
+        }
+
+        alvo.innerHTML = linhas.join("");
+    }
+
+    function atualizarAbaXP() {
+        if (!document.getElementById("xp-big")) return;
+
+        const de = xpLerCampo("xp-de", 1, 1);
+        const ate = xpLerCampo("xp-ate", 1, 2);
+        const valido = ate > de;
+
+        const necessario = valido ? xpTotalAteNivel(ate) - xpTotalAteNivel(de) : 0;
+        const niveis = valido ? ate - de : 0;
+
+        document.getElementById("xp-big").textContent = xpFormatar(necessario);
+        document.getElementById("xp-warn").classList.toggle("on", !valido);
+        document.getElementById("xp-f-niveis").textContent = valido ? niveis : "—";
+        document.getElementById("xp-f-media").textContent = valido ? xpFormatar(Math.round(necessario / niveis)) : "—";
+        document.getElementById("xp-f-ultimo").textContent = valido ? xpFormatar(xpCustoDoNivel(ate)) : "—";
+
+        const mult = xpMultiplicador();
+        let base = parseFloat(document.getElementById("xp-abate")?.value);
+        if (!Number.isFinite(base) || base <= 0) base = 0;
+        const porAbate = base * mult;
+
+        document.getElementById("xp-o-mult").textContent =
+            "×" + mult.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+        document.getElementById("xp-o-perkill").textContent =
+            porAbate > 0 ? xpFormatar(Math.round(porAbate * 100) / 100) : "—";
+        document.getElementById("xp-o-kills").textContent =
+            (valido && porAbate > 0) ? xpFormatar(Math.ceil(necessario / porAbate)) : "—";
+
+        document.querySelectorAll("#tab-xp .xp-chip").forEach(chip => {
+            chip.classList.toggle("on", !!chip.querySelector("input")?.checked);
+        });
+
+        const referencia = ultimoPokemon || pokemonFixado;
+        const botaoLido = document.getElementById("xp-usar-lido");
+        if (botaoLido) {
+            if (referencia && Number.isFinite(Number(referencia.nivel))) {
+                botaoLido.style.display = "block";
+                botaoLido.textContent = "↧ usar Nv " + referencia.nivel + " de " + (referencia.nome || "Pokémon lido");
+            } else {
+                botaoLido.style.display = "none";
+            }
+        }
+
+        xpDesenharCurva(de, valido ? ate : de + 1);
+        xpMontarTabela(de, ate, valido, porAbate);
+    }
+
+    function configurarAbaXP() {
+        const aba = document.getElementById("tab-xp");
+        if (!aba || aba.dataset.xpPronta === "1") return;
+        aba.dataset.xpPronta = "1";
+
+        xpRestaurarEstado();
+
+        const aoMudar = () => {
+            atualizarAbaXP();
+            xpSalvarEstado();
+        };
+
+        ["xp-de", "xp-ate", "xp-abate", "xp-streak"].forEach(id => {
+            document.getElementById(id)?.addEventListener("input", aoMudar);
+        });
+
+        // ao sair do campo, reescreve o valor já dentro dos limites
+        ["xp-de", "xp-ate"].forEach(id => {
+            document.getElementById(id)?.addEventListener("change", evento => {
+                const minimo = id === "xp-ate" ? 2 : 1;
+                evento.target.value = xpLerCampo(id, minimo, minimo);
+                aoMudar();
+            });
+        });
+
+        ["xp-abate", "xp-streak"].forEach(id => {
+            document.getElementById(id)?.addEventListener("change", evento => {
+                let valor = parseInt(evento.target.value, 10);
+                const minimo = id === "xp-abate" ? 1 : 0;
+                if (!Number.isFinite(valor) || valor < minimo) valor = minimo;
+                evento.target.value = valor;
+                aoMudar();
+            });
+        });
+
+        ["xp-vip", "xp-boost", "xp-dex"].forEach(id => {
+            document.getElementById(id)?.addEventListener("change", aoMudar);
+        });
+
+        document.querySelectorAll("#tab-xp [data-xp-step]").forEach(botao => {
+            botao.addEventListener("click", () => {
+                const campo = document.getElementById(botao.dataset.xpTarget);
+                if (!campo) return;
+                const minimo = campo.id === "xp-ate" ? 2 : 1;
+                const atual = xpLerCampo(campo.id, minimo, minimo);
+                campo.value = xpLimitar(atual + parseInt(botao.dataset.xpStep, 10), minimo, XP_NIVEL_MAXIMO);
+                aoMudar();
+            });
+        });
+
+        document.getElementById("xp-usar-lido")?.addEventListener("click", () => {
+            const referencia = ultimoPokemon || pokemonFixado;
+            const nivel = Number(referencia?.nivel);
+            if (!Number.isFinite(nivel) || nivel <= 0) return;
+
+            const campoDe = document.getElementById("xp-de");
+            const campoAte = document.getElementById("xp-ate");
+            campoDe.value = xpLimitar(Math.round(nivel), 1, XP_NIVEL_MAXIMO);
+            if (Number(campoAte.value) <= Number(campoDe.value)) {
+                campoAte.value = xpLimitar(Math.round(nivel) + 10, 2, XP_NIVEL_MAXIMO);
+            }
+            aoMudar();
+        });
+
+        atualizarAbaXP();
+    }
+
+    // -------------------------------------------------------------------------
+    // TRACKER DE HUNT
+    // Alimentado pelos pacotes "field-kill" (XP do treinador, loot, multiplicadores)
+    // e "poke-xp" (XP do Pokémon ativo), pelo mesmo barramento que o detector de shiny.
+    // -------------------------------------------------------------------------
+
+    const HUNT_JANELA_MS = 10 * 60 * 1000;   // janela móvel para calcular a taxa
+    const HUNT_STORAGE_KEY = "justpokedex-hunt-sessao";
+    const HUNT_METAS_KEY = "justpokedex-hunt-metas";
+    const HUNT_MAX_EVENTOS = 3000;
+    const HUNT_LIMITE_OCIOSO = 90 * 1000;   // sem abates por mais que isso = hunt pausada
+    const HUNT_TAB_KEY = "justpokedex-tab-id";
+    const HUNT_VALIDADE_MS = 24 * 60 * 60 * 1000;
+
+    // O script pode rodar em várias abas ao mesmo tempo, cada uma com seu personagem e
+    // seu socket. localStorage é compartilhado por origem, então as sessões precisam de
+    // um escopo por aba — sessionStorage é isolado por aba e sobrevive ao F5.
+    let huntEscopo = null;
+
+    function huntObterEscopo() {
+        if (huntEscopo) return huntEscopo;
+        try {
+            huntEscopo = sessionStorage.getItem(HUNT_TAB_KEY);
+        } catch (e) { /* sessionStorage bloqueado */ }
+
+        if (!huntEscopo) {
+            huntEscopo = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            try {
+                sessionStorage.setItem(HUNT_TAB_KEY, huntEscopo);
+            } catch (e) { /* sem persistência: isola a aba, mas não sobrevive ao F5 */ }
+        }
+        return huntEscopo;
+    }
+
+    function huntChave(base) {
+        return base + ":" + huntObterEscopo();
+    }
+
+    // Remove sessões órfãs (abas fechadas) e a chave global da v3.3.0, que era
+    // compartilhada entre todas as abas.
+    function huntLimparSessoesAntigas() {
+        const agora = Date.now();
+        const minha = ":" + huntObterEscopo();
+
+        try {
+            localStorage.removeItem(HUNT_STORAGE_KEY);
+            localStorage.removeItem(HUNT_METAS_KEY);
+
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+                const chave = localStorage.key(i);
+                if (!chave || chave.indexOf(HUNT_STORAGE_KEY + ":") !== 0) continue;
+                if (chave.endsWith(minha)) continue;
+
+                let dados = null;
+                try {
+                    dados = JSON.parse(localStorage.getItem(chave) || "null");
+                } catch (e) { /* entrada corrompida: cai no descarte abaixo */ }
+
+                const carimbo = Number(dados?.salvoEm || dados?.inicio || 0);
+                if (!carimbo || agora - carimbo > HUNT_VALIDADE_MS) {
+                    localStorage.removeItem(chave);
+                    localStorage.removeItem(chave.replace(HUNT_STORAGE_KEY, HUNT_METAS_KEY));
+                }
+            }
+        } catch (e) { /* storage indisponível */ }
+    }
+
+    const HUNT_ROTULOS_PARTES = {
+        base: "Base",
+        vip: "VIP",
+        boost: "Boost",
+        streak: "Streak",
+        event: "Evento",
+        typeDay: "Dia do tipo",
+        mentor: "Mentor",
+        clan: "Clã"
+    };
+
+    let huntEventos = [];          // { t, xp } de cada abate
+    let huntInicio = null;
+    let huntXpSessao = 0;
+    let huntAbates = 0;
+    let huntShinies = 0;
+    let huntPartes = {};           // origem do XP -> total acumulado
+    let huntLoot = {};             // nome do item -> quantidade
+    let huntTreinador = { level: null, xp: null, nome: null };
+    let huntPokemon = { id: null, speciesId: null, level: null, xp: null, nome: null };
+    let huntUltimaEspecie = null;
+    let huntIntervalo = null;
+    let huntSalvarEm = 0;
+    let huntSemeado = false;
+
+    function huntNomeEspecie(speciesId) {
+        const lista = window._piwPokeList;
+        const indice = Number(speciesId) - 1;
+        if (Array.isArray(lista) && lista[indice]?.name) {
+            const nome = lista[indice].name;
+            return nome.charAt(0).toUpperCase() + nome.slice(1);
+        }
+        return speciesId ? "Espécie #" + speciesId : "Pokémon ativo";
+    }
+
+    function huntDuracao(ms) {
+        if (!Number.isFinite(ms) || ms < 0) return "—";
+        const seg = Math.floor(ms / 1000);
+        const h = Math.floor(seg / 3600);
+        const m = Math.floor((seg % 3600) / 60);
+        const s = seg % 60;
+        if (h >= 48) return Math.floor(h / 24) + "d " + (h % 24) + "h";
+        if (h > 0) return h + "h " + String(m).padStart(2, "0") + "m";
+        if (m > 0) return m + "m " + String(s).padStart(2, "0") + "s";
+        return s + "s";
+    }
+
+    function huntSalvarSessao(forcar) {
+        const agora = Date.now();
+        if (!forcar && agora - huntSalvarEm < 5000) return;
+        huntSalvarEm = agora;
+        try {
+            localStorage.setItem(huntChave(HUNT_STORAGE_KEY), JSON.stringify({
+                salvoEm: agora,
+                inicio: huntInicio,
+                xp: huntXpSessao,
+                abates: huntAbates,
+                shinies: huntShinies,
+                partes: huntPartes,
+                loot: huntLoot,
+                treinador: huntTreinador,
+                pokemon: huntPokemon,
+                especie: huntUltimaEspecie,
+                eventos: huntEventos.slice(-600)
+            }));
+        } catch (e) { /* storage cheio ou indisponível */ }
+    }
+
+    function huntRestaurarSessao() {
+        let dados = null;
+        try {
+            dados = JSON.parse(localStorage.getItem(huntChave(HUNT_STORAGE_KEY)) || "null");
+        } catch (e) {
+            dados = null;
+        }
+        if (!dados || !dados.inicio) return;
+
+        huntInicio = Number(dados.inicio) || null;
+        huntXpSessao = Number(dados.xp) || 0;
+        huntAbates = Number(dados.abates) || 0;
+        huntShinies = Number(dados.shinies) || 0;
+        huntPartes = dados.partes && typeof dados.partes === "object" ? dados.partes : {};
+        huntLoot = dados.loot && typeof dados.loot === "object" ? dados.loot : {};
+        huntEventos = Array.isArray(dados.eventos) ? dados.eventos : [];
+        huntUltimaEspecie = dados.especie || null;
+        if (dados.treinador) huntTreinador = dados.treinador;
+        if (dados.pokemon) huntPokemon = dados.pokemon;
+        if (huntTreinador.level !== null) huntSemeado = true;
+    }
+
+    function huntZerar() {
+        huntEventos = [];
+        huntInicio = null;
+        huntXpSessao = 0;
+        huntAbates = 0;
+        huntShinies = 0;
+        huntPartes = {};
+        huntLoot = {};
+        huntUltimaEspecie = null;
+        try { localStorage.removeItem(huntChave(HUNT_STORAGE_KEY)); } catch (e) { }
+        atualizarAbaHunt();
+    }
+
+    function huntRegistrarAbate(msg) {
+        const agora = Date.now();
+        if (!huntInicio) huntInicio = agora;
+
+        const ganho = Number(msg.xpGained);
+        if (Number.isFinite(ganho) && ganho > 0) {
+            huntEventos.push({ t: agora, xp: ganho });
+            if (huntEventos.length > HUNT_MAX_EVENTOS) {
+                huntEventos = huntEventos.slice(-HUNT_MAX_EVENTOS);
+            }
+            huntXpSessao += ganho;
+        }
+
+        huntAbates++;
+        if (msg.shiny === true) huntShinies++;
+
+        if (Number.isFinite(Number(msg.totalXp))) huntTreinador.xp = Number(msg.totalXp);
+        if (Number.isFinite(Number(msg.level))) huntTreinador.level = Number(msg.level);
+        huntSemeado = true;
+
+        if (msg.speciesName) huntUltimaEspecie = String(msg.speciesName);
+
+        if (msg.xpParts && typeof msg.xpParts === "object") {
+            Object.keys(msg.xpParts).forEach(chave => {
+                const valor = Number(msg.xpParts[chave]);
+                if (Number.isFinite(valor) && valor > 0) {
+                    huntPartes[chave] = (huntPartes[chave] || 0) + valor;
+                }
+            });
+        }
+
+        if (Array.isArray(msg.loot)) {
+            msg.loot.forEach(item => {
+                const nome = String(item?.name || "").trim();
+                const qtd = Number(item?.qty);
+                if (nome && Number.isFinite(qtd) && qtd > 0) {
+                    huntLoot[nome] = (huntLoot[nome] || 0) + qtd;
+                }
+            });
+        }
+
+        huntSalvarSessao(false);
+    }
+
+    function huntRegistrarPokeXp(msg) {
+        if (Number.isFinite(Number(msg.xp))) huntPokemon.xp = Number(msg.xp);
+        if (Number.isFinite(Number(msg.level))) huntPokemon.level = Number(msg.level);
+        if (msg.id) huntPokemon.id = msg.id;
+        if (Number.isFinite(Number(msg.speciesId))) {
+            huntPokemon.speciesId = Number(msg.speciesId);
+            huntPokemon.nome = huntNomeEspecie(huntPokemon.speciesId);
+        }
+        huntSalvarSessao(false);
+    }
+
+    // Escutador do barramento — mesmo caminho usado pelo detector de shiny
+    window.addEventListener("justpokedex-ws-message", evento => {
+        try {
+            const msg = evento.detail;
+            if (!msg || typeof msg !== "object") return;
+            const tipo = String(msg.type || "").toLowerCase();
+            if (tipo === "field-kill") huntRegistrarAbate(msg);
+            else if (tipo === "poke-xp") huntRegistrarPokeXp(msg);
+        } catch (e) { /* nunca derruba o barramento */ }
+    });
+
+    // Percorre os abates ignorando os períodos parados: a janela de 10 minutos passa
+    // a ser de tempo *caçando*, então sair da hunt congela a taxa em vez de derrubá-la.
+    function huntResumo() {
+        const agora = Date.now();
+        const total = huntEventos.length;
+
+        if (total === 0) {
+            return { xpJanela: 0, abatesJanela: 0, ativoJanela: 0, ativoTotal: 0, pausado: false, ocioso: 0 };
+        }
+
+        const ultimo = huntEventos[total - 1].t;
+        const ocioso = agora - ultimo;
+        const pausado = ocioso > HUNT_LIMITE_OCIOSO;
+        const cauda = pausado ? 0 : ocioso;
+
+        let ativoTotal = cauda;
+        for (let i = 1; i < total; i++) {
+            const intervalo = huntEventos[i].t - huntEventos[i - 1].t;
+            if (intervalo <= HUNT_LIMITE_OCIOSO) ativoTotal += intervalo;
+        }
+
+        let ativoJanela = cauda;
+        let xpJanela = 0;
+        let abatesJanela = 0;
+
+        for (let i = total - 1; i >= 0; i--) {
+            xpJanela += huntEventos[i].xp;
+            abatesJanela++;
+            if (i === 0) break;
+
+            const intervalo = huntEventos[i].t - huntEventos[i - 1].t;
+            if (intervalo > HUNT_LIMITE_OCIOSO) continue;          // pausa: não conta tempo
+            if (ativoJanela + intervalo > HUNT_JANELA_MS) break;   // janela cheia
+            ativoJanela += intervalo;
+        }
+
+        return { xpJanela, abatesJanela, ativoJanela, ativoTotal, pausado, ocioso };
+    }
+
+    function huntTaxas() {
+        const resumo = huntResumo();
+
+        if (resumo.abatesJanela === 0 || resumo.ativoJanela < 20000) {
+            return { xpHora: 0, abatesHora: 0, medindo: true, resumo };
+        }
+
+        const horas = resumo.ativoJanela / 3600000;
+
+        return {
+            xpHora: Math.round(resumo.xpJanela / horas),
+            abatesHora: Math.round(resumo.abatesJanela / horas),
+            medindo: false,
+            resumo
+        };
+    }
+
+    // O nível é derivado do XP em vez de lido do pacote: a curva já está validada
+    // e assim a barra nunca fica inconsistente se o campo "level" atrasar.
+    function huntNivelPorXp(xp) {
+        if (!Number.isFinite(xp) || xp < 0) return null;
+        let nivel = Math.max(1, Math.floor(Math.cbrt((3 * xp) / 50)) + 1);
+        while (nivel > 1 && xpTotalAteNivel(nivel) > xp) nivel--;
+        while (xpTotalAteNivel(nivel + 1) <= xp) nivel++;
+        return nivel;
+    }
+
+    let huntListaPedida = false;
+
+    function huntCarregarEspecies() {
+        if (huntListaPedida || Array.isArray(window._piwPokeList)) return;
+        huntListaPedida = true;
+        fetch("https://pokeapi.co/api/v2/pokemon?limit=1302&offset=0")
+            .then(resposta => resposta.json())
+            .then(dados => {
+                if (Array.isArray(dados?.results)) window._piwPokeList = dados.results;
+            })
+            .catch(() => { huntListaPedida = false; });
+    }
+
+    function huntPintarProgresso(prefixo, nivelPacote, xpAtual, xpHora) {
+        const elLv = document.getElementById(prefixo + "-lv");
+        const elFill = document.getElementById(prefixo + "-fill");
+        const elFalta = document.getElementById(prefixo + "-falta");
+        const elEta = document.getElementById(prefixo + "-eta");
+        if (!elLv) return;
+
+        const nivel = Number.isFinite(xpAtual) ? huntNivelPorXp(xpAtual) : nivelPacote;
+
+        if (!Number.isFinite(nivel) || !Number.isFinite(xpAtual)) {
+            elLv.textContent = Number.isFinite(nivelPacote) ? "Nv " + nivelPacote : "Nv —";
+            elFill.style.width = "0%";
+            elFalta.textContent = "sem dados ainda";
+            elEta.textContent = "—";
+            return;
+        }
+
+        const base = xpTotalAteNivel(nivel);
+        const custo = xpCustoDoNivel(nivel + 1);
+        const dentro = Math.max(0, xpAtual - base);
+        const percentual = Math.max(0, Math.min(100, (dentro / custo) * 100));
+        const falta = Math.max(0, custo - dentro);
+
+        elLv.textContent = "Nv " + nivel;
+        elFill.style.width = percentual.toFixed(1) + "%";
+        elFalta.textContent = xpFormatar(falta) + " XP (" + percentual.toFixed(1) + "%)";
+        elEta.textContent = (xpHora > 0 && falta > 0)
+            ? "⏱ " + huntDuracao((falta / xpHora) * 3600000)
+            : "—";
+    }
+
+    function huntSalvarMetas() {
+        try {
+            localStorage.setItem(huntChave(HUNT_METAS_KEY), JSON.stringify({
+                treinador: document.getElementById("hunt-meta-tr-alvo")?.value || "",
+                pokemon: document.getElementById("hunt-meta-pk-alvo")?.value || ""
+            }));
+        } catch (e) { }
+    }
+
+    function huntRestaurarMetas() {
+        let dados = null;
+        try {
+            dados = JSON.parse(localStorage.getItem(huntChave(HUNT_METAS_KEY)) || "null");
+        } catch (e) { }
+        if (!dados) return;
+        const tr = document.getElementById("hunt-meta-tr-alvo");
+        const pk = document.getElementById("hunt-meta-pk-alvo");
+        if (tr && dados.treinador) { tr.value = dados.treinador; tr.dataset.preenchido = "1"; }
+        if (pk && dados.pokemon) { pk.value = dados.pokemon; pk.dataset.preenchido = "1"; }
+    }
+
+    function huntPintarMeta(prefixo, xpAtual, nivelPacote, xpHora) {
+        const campo = document.getElementById(prefixo + "-alvo");
+        const elTempo = document.getElementById(prefixo + "-tempo");
+        const elXp = document.getElementById(prefixo + "-xp");
+        if (!campo) return;
+
+        const nivelAtual = Number.isFinite(xpAtual) ? huntNivelPorXp(xpAtual) : nivelPacote;
+
+        if (!Number.isFinite(nivelAtual) || !Number.isFinite(xpAtual)) {
+            elTempo.textContent = "—";
+            elXp.textContent = "sem dados ainda";
+            return;
+        }
+
+        // sugere um alvo na primeira vez, mas nunca reescreve o que a pessoa digitou
+        if (!campo.dataset.preenchido && !campo.value) {
+            campo.value = Math.min(nivelAtual + 5, XP_NIVEL_MAXIMO);
+            campo.dataset.preenchido = "1";
+        }
+
+        let alvo = parseInt(campo.value, 10);
+        if (!Number.isFinite(alvo)) {
+            elTempo.textContent = "—";
+            elXp.textContent = "escolha um nível";
+            return;
+        }
+        alvo = xpLimitar(alvo, 1, XP_NIVEL_MAXIMO);
+
+        if (alvo <= nivelAtual) {
+            elTempo.textContent = "—";
+            elXp.textContent = "alvo já alcançado";
+            return;
+        }
+
+        const falta = xpTotalAteNivel(alvo) - xpAtual;
+        const niveis = alvo - nivelAtual;
+
+        elTempo.textContent = xpHora > 0 ? huntDuracao((falta / xpHora) * 3600000) : "medindo…";
+        elXp.textContent = xpFormatar(falta) + " XP · " + niveis + (niveis === 1 ? " nível" : " níveis");
+    }
+
+    function huntPintarPartes() {
+        const alvo = document.getElementById("hunt-partes");
+        if (!alvo) return;
+
+        const entradas = Object.entries(huntPartes).filter(([, v]) => v > 0);
+        if (entradas.length === 0) {
+            alvo.innerHTML = '<div class="hunt-vazio">Nada registrado ainda.</div>';
+            return;
+        }
+
+        const total = entradas.reduce((soma, [, v]) => soma + v, 0);
+        entradas.sort((a, b) => b[1] - a[1]);
+
+        alvo.innerHTML = entradas.map(([chave, valor]) => {
+            const pct = (valor / total) * 100;
+            const rotulo = HUNT_ROTULOS_PARTES[chave] || chave;
+            return '<div class="hunt-parte' + (chave === "base" ? " base" : "") + '">' +
+                "<span>" + escapeHtml(rotulo) + "</span>" +
+                '<div class="hunt-parte-bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+                "<b>" + pct.toFixed(0) + "%</b></div>";
+        }).join("");
+    }
+
+    function huntPintarLoot() {
+        const alvo = document.getElementById("hunt-loot");
+        if (!alvo) return;
+
+        const entradas = Object.entries(huntLoot).sort((a, b) => b[1] - a[1]).slice(0, 14);
+        if (entradas.length === 0) {
+            alvo.innerHTML = '<div class="hunt-vazio">Nenhum item ainda.</div>';
+            return;
+        }
+
+        alvo.innerHTML = entradas.map(([nome, qtd]) =>
+            '<span class="hunt-item">' + escapeHtml(nome) + " <i>×" + xpFormatar(qtd) + "</i></span>"
+        ).join("");
+    }
+
+    function atualizarAbaHunt() {
+        if (!document.getElementById("hunt-xph")) return;
+
+        const taxas = huntTaxas();
+        const resumo = taxas.resumo;
+        const caçando = huntAbates > 0 && !resumo.pausado;
+
+        document.getElementById("hunt-dot").classList.toggle("on", caçando);
+        document.getElementById("hunt-estado").textContent = huntAbates === 0
+            ? "Esperando o primeiro abate…"
+            : (caçando
+                ? "Caçando" + (huntUltimaEspecie ? " " + huntUltimaEspecie : "") +
+                  (huntShinies > 0 ? " · " + huntShinies + " shiny" : "")
+                : "Pausado há " + huntDuracao(resumo.ocioso) + " · retoma sozinho");
+
+        document.getElementById("hunt-xph").textContent = taxas.medindo ? "medindo…" : xpFormatar(taxas.xpHora);
+        document.getElementById("hunt-kph").textContent = taxas.medindo ? "—" : xpFormatar(taxas.abatesHora);
+        document.getElementById("hunt-tempo").textContent = huntAbates ? huntDuracao(resumo.ativoTotal) : "—";
+
+        document.getElementById("hunt-xp-sessao").textContent = huntAbates ? xpFormatar(huntXpSessao) : "—";
+        document.getElementById("hunt-abates").textContent = huntAbates ? xpFormatar(huntAbates) : "—";
+        document.getElementById("hunt-xp-abate").textContent = huntAbates
+            ? xpFormatar(Math.round(huntXpSessao / huntAbates))
+            : "—";
+
+        document.getElementById("hunt-tr-nome").textContent = huntTreinador.nome || "Treinador";
+        document.getElementById("hunt-pk-nome").textContent = huntPokemon.nome ||
+            (huntPokemon.speciesId ? huntNomeEspecie(huntPokemon.speciesId) : "Pokémon ativo");
+
+        huntPintarProgresso("hunt-tr", huntTreinador.level, huntTreinador.xp, taxas.xpHora);
+        huntPintarProgresso("hunt-pk", huntPokemon.level, huntPokemon.xp, taxas.xpHora);
+        huntPintarMeta("hunt-meta-tr", huntTreinador.xp, huntTreinador.level, taxas.xpHora);
+        huntPintarMeta("hunt-meta-pk", huntPokemon.xp, huntPokemon.level, taxas.xpHora);
+
+        const rotuloMetaPk = document.getElementById("hunt-meta-pk-k");
+        if (rotuloMetaPk) rotuloMetaPk.textContent = huntPokemon.nome || "Pokémon";
+        huntPintarPartes();
+        huntPintarLoot();
+    }
+
+    async function huntSemearTreinador() {
+        if (huntSemeado) return;
+        try {
+            const dados = await gameApiRequest("/api/characters/me");
+            const personagem = dados?.character;
+            if (!personagem) return;
+            if (Number.isFinite(Number(personagem.level))) huntTreinador.level = Number(personagem.level);
+            if (Number.isFinite(Number(personagem.xp))) huntTreinador.xp = Number(personagem.xp);
+            if (personagem.name) huntTreinador.nome = String(personagem.name);
+            huntSemeado = true;
+
+            // aproveita para preencher os multiplicadores da calculadora
+            const chipVip = document.getElementById("xp-vip");
+            if (chipVip && personagem.isVip === true && !chipVip.checked) {
+                chipVip.checked = true;
+                atualizarAbaXP();
+            }
+            const campoStreak = document.getElementById("xp-streak");
+            if (campoStreak && Number(personagem.streakExp) > 0) {
+                campoStreak.value = Number(personagem.streakExp);
+                atualizarAbaXP();
+            }
+
+            atualizarAbaHunt();
+        } catch (e) { /* sem token ou offline: os abates preenchem sozinhos */ }
+    }
+
+    function configurarAbaHunt() {
+        const aba = document.getElementById("tab-hunt");
+        if (!aba || aba.dataset.huntPronta === "1") return;
+        aba.dataset.huntPronta = "1";
+
+        huntLimparSessoesAntigas();
+        huntRestaurarSessao();
+
+        document.getElementById("hunt-zerar")?.addEventListener("click", huntZerar);
+
+        huntRestaurarMetas();
+        ["hunt-meta-tr-alvo", "hunt-meta-pk-alvo"].forEach(id => {
+            const campo = document.getElementById(id);
+            if (!campo) return;
+            campo.addEventListener("input", () => {
+                campo.dataset.preenchido = "1";
+                huntSalvarMetas();
+                atualizarAbaHunt();
+            });
+            campo.addEventListener("change", () => {
+                const valor = parseInt(campo.value, 10);
+                if (Number.isFinite(valor)) campo.value = xpLimitar(valor, 1, XP_NIVEL_MAXIMO);
+                huntSalvarMetas();
+                atualizarAbaHunt();
+            });
+        });
+
+        if (!huntIntervalo) {
+            huntIntervalo = setInterval(() => {
+                if (abaAtual === "hunt") atualizarAbaHunt();
+            }, 1000);
+        }
+
+        huntCarregarEspecies();
+        atualizarAbaHunt();
+        huntSemearTreinador();
+    }
+
     function trocarAba(nome) {
         if (nome === "moves") {
             alternarPainelMoves();
@@ -3226,7 +4227,9 @@
             nome !== "leitor" &&
             nome !== "analise" &&
             nome !== "comparacao" &&
-            nome !== "captura"
+            nome !== "captura" &&
+            nome !== "xp" &&
+            nome !== "hunt"
         ) {
             return;
         }
@@ -3270,6 +4273,16 @@
             if (typeof renderizarAbaCaptura === "function") {
                 renderizarAbaCaptura();
             }
+        }
+
+        if (nome === "xp") {
+            configurarAbaXP();
+            atualizarAbaXP();
+        }
+
+        if (nome === "hunt") {
+            configurarAbaHunt();
+            atualizarAbaHunt();
         }
     }
 
@@ -5469,6 +6482,653 @@
             #${CONFIG.panelId}
             .tab-icon {
                 font-size: 12px;
+            }
+
+            #${CONFIG.panelId}
+            .tab-button.tab-wide {
+                grid-column: 1 / -1;
+            }
+
+            /* ---------- Calculadora de XP ---------- */
+
+            #${CONFIG.panelId}
+            .xp-wrap {
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-formula {
+                font-size: 9px;
+                letter-spacing: .02em;
+                color: #66758a;
+                text-align: center;
+                padding: 6px 8px;
+                background: #0c131f;
+                border: 1px solid rgba(255,255,255,.07);
+                border-radius: 7px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-field label {
+                display: block;
+                font-size: 9px;
+                text-transform: uppercase;
+                letter-spacing: .08em;
+                color: #66758a;
+                margin-bottom: 4px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-step {
+                display: flex;
+                align-items: stretch;
+                background: #151d2a;
+                border: 1px solid rgba(255,255,255,.09);
+                border-radius: 7px;
+                overflow: hidden;
+            }
+
+            #${CONFIG.panelId}
+            .xp-step button {
+                width: 26px;
+                flex: 0 0 26px;
+                background: transparent;
+                border: none;
+                color: #f1c644;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+                line-height: 1;
+                padding: 0;
+            }
+
+            #${CONFIG.panelId}
+            .xp-step button:hover {
+                background: rgba(241,198,68,.12);
+            }
+
+            #${CONFIG.panelId}
+            .xp-step input,
+            #${CONFIG.panelId}
+            .xp-input {
+                flex: 1;
+                min-width: 0;
+                width: 100%;
+                background: transparent;
+                border: none;
+                outline: none;
+                text-align: center;
+                color: #e2ecfa;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 7px 0;
+                box-sizing: border-box;
+                -moz-appearance: textfield;
+            }
+
+            #${CONFIG.panelId}
+            .xp-input {
+                background: #151d2a;
+                border: 1px solid rgba(255,255,255,.09);
+                border-radius: 7px;
+                font-size: 12px;
+                padding: 7px 8px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-step input::-webkit-outer-spin-button,
+            #${CONFIG.panelId}
+            .xp-step input::-webkit-inner-spin-button,
+            #${CONFIG.panelId}
+            .xp-input::-webkit-outer-spin-button,
+            #${CONFIG.panelId}
+            .xp-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+
+            #${CONFIG.panelId}
+            .xp-step:focus-within,
+            #${CONFIG.panelId}
+            .xp-input:focus {
+                border-color: rgba(241,198,68,.55);
+            }
+
+            #${CONFIG.panelId}
+            .xp-link {
+                background: transparent;
+                border: none;
+                color: #7d899d;
+                font-size: 9.5px;
+                cursor: pointer;
+                padding: 0;
+                text-align: left;
+                text-decoration: underline;
+                text-underline-offset: 2px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-link:hover {
+                color: #f1c644;
+            }
+
+            #${CONFIG.panelId}
+            .xp-result {
+                background: #0c131f;
+                border: 1px solid rgba(241,198,68,.28);
+                border-radius: 9px;
+                padding: 11px 12px;
+                text-align: center;
+            }
+
+            #${CONFIG.panelId}
+            .xp-result-k {
+                font-size: 8.5px;
+                text-transform: uppercase;
+                letter-spacing: .14em;
+                color: #66758a;
+            }
+
+            #${CONFIG.panelId}
+            .xp-big {
+                font-size: 26px;
+                font-weight: bold;
+                color: #f1c644;
+                line-height: 1.15;
+                margin-top: 2px;
+                word-break: break-all;
+            }
+
+            #${CONFIG.panelId}
+            .xp-warn {
+                display: none;
+                font-size: 9.5px;
+                color: #f06468;
+                margin-top: 3px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-warn.on {
+                display: block;
+            }
+
+            #${CONFIG.panelId}
+            .xp-facts {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 6px;
+                margin-top: 9px;
+                padding-top: 8px;
+                border-top: 1px solid rgba(255,255,255,.07);
+            }
+
+            #${CONFIG.panelId}
+            .xp-facts-tight {
+                margin-top: 0;
+                padding-top: 0;
+                border-top: none;
+            }
+
+            #${CONFIG.panelId}
+            .xp-facts span {
+                display: block;
+                font-size: 8px;
+                text-transform: uppercase;
+                letter-spacing: .07em;
+                color: #66758a;
+            }
+
+            #${CONFIG.panelId}
+            .xp-facts b {
+                display: block;
+                font-size: 11.5px;
+                color: #e2ecfa;
+                margin-top: 2px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-facts b.xp-gold {
+                color: #f1c644;
+            }
+
+            #${CONFIG.panelId}
+            .xp-chart {
+                display: block;
+                width: 100%;
+                height: auto;
+            }
+
+            #${CONFIG.panelId}
+            .xp-chart-legend {
+                display: flex;
+                justify-content: center;
+                gap: 12px;
+                font-size: 8.5px;
+                color: #66758a;
+                margin-top: -4px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-sw {
+                display: inline-block;
+                width: 8px;
+                height: 8px;
+                border-radius: 2px;
+                margin-right: 4px;
+                vertical-align: -1px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-sw-hot {
+                background: #f1c644;
+            }
+
+            #${CONFIG.panelId}
+            .xp-sw-wedge {
+                background: rgba(241,198,68,.28);
+            }
+
+            #${CONFIG.panelId}
+            .xp-sec {
+                font-size: 9px;
+                text-transform: uppercase;
+                letter-spacing: .12em;
+                color: #7d899d;
+                border-top: 1px solid rgba(255,255,255,.07);
+                padding-top: 9px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+
+            #${CONFIG.panelId}
+            .xp-chip {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                flex: 1;
+                justify-content: center;
+                font-size: 9px;
+                color: #7d899d;
+                background: #151d2a;
+                border: 1px solid rgba(255,255,255,.09);
+                border-radius: 7px;
+                padding: 6px 4px;
+                cursor: pointer;
+                user-select: none;
+            }
+
+            #${CONFIG.panelId}
+            .xp-chip.on {
+                color: #f1c644;
+                border-color: rgba(241,198,68,.45);
+                background: rgba(241,198,68,.08);
+            }
+
+            #${CONFIG.panelId}
+            .xp-chip input {
+                accent-color: #ca3035;
+                width: 11px;
+                height: 11px;
+                margin: 0;
+                cursor: pointer;
+            }
+
+            #${CONFIG.panelId}
+            .xp-table {
+                max-height: 150px;
+                overflow-y: auto;
+                border: 1px solid rgba(255,255,255,.07);
+                border-radius: 7px;
+                background: #0c131f;
+            }
+
+            #${CONFIG.panelId}
+            .xp-tr {
+                display: grid;
+                grid-template-columns: 46px 1fr 1fr;
+                gap: 4px;
+                padding: 5px 9px;
+                font-size: 10px;
+                color: #cbd7e8;
+                border-bottom: 1px solid rgba(255,255,255,.05);
+            }
+
+            #${CONFIG.panelId}
+            .xp-tr:last-child {
+                border-bottom: none;
+            }
+
+            #${CONFIG.panelId}
+            .xp-tr.xp-th {
+                position: sticky;
+                top: 0;
+                background: #101827;
+                color: #66758a;
+                font-size: 8px;
+                text-transform: uppercase;
+                letter-spacing: .08em;
+            }
+
+            #${CONFIG.panelId}
+            .xp-tr span:nth-child(2),
+            #${CONFIG.panelId}
+            .xp-tr span:nth-child(3) {
+                text-align: right;
+            }
+
+            #${CONFIG.panelId}
+            .xp-tr b {
+                color: #f1c644;
+                font-weight: bold;
+            }
+
+            /* ---------- Tracker de Hunt ---------- */
+
+            #${CONFIG.panelId}
+            .hunt-wrap {
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-top {
+                display: flex;
+                align-items: center;
+                gap: 7px;
+                font-size: 10px;
+                color: #7d899d;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-dot {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background: #4a5568;
+                flex: 0 0 auto;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-dot.on {
+                background: #4caf50;
+                box-shadow: 0 0 6px rgba(76,175,80,.7);
+            }
+
+            #${CONFIG.panelId}
+            .hunt-estado {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-reset {
+                background: transparent;
+                border: 1px solid rgba(255,255,255,.12);
+                border-radius: 6px;
+                color: #7d899d;
+                font-size: 9px;
+                padding: 3px 8px;
+                cursor: pointer;
+                flex: 0 0 auto;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-reset:hover {
+                color: #f06468;
+                border-color: rgba(240,100,104,.5);
+            }
+
+            #${CONFIG.panelId}
+            .hunt-card {
+                background: #0c131f;
+                border: 1px solid rgba(255,255,255,.08);
+                border-radius: 9px;
+                padding: 9px 11px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-card-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                gap: 8px;
+                font-size: 11px;
+                color: #cbd7e8;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-card-top span {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-card-top b {
+                color: #f1c644;
+                font-size: 12px;
+                flex: 0 0 auto;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-bar {
+                height: 7px;
+                background: #1b2434;
+                border-radius: 4px;
+                overflow: hidden;
+                margin: 7px 0 5px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-bar i {
+                display: block;
+                height: 100%;
+                width: 0;
+                border-radius: 4px;
+                background: linear-gradient(90deg, #d89a12, #f1c644);
+                transition: width .4s ease;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-card-bot {
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                font-size: 9.5px;
+                color: #66758a;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-eta {
+                color: #cbd7e8;
+                flex: 0 0 auto;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-partes {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-parte {
+                display: grid;
+                grid-template-columns: 62px 1fr 38px;
+                align-items: center;
+                gap: 7px;
+                font-size: 9.5px;
+                color: #7d899d;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-parte-bar {
+                height: 5px;
+                background: #1b2434;
+                border-radius: 3px;
+                overflow: hidden;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-parte-bar i {
+                display: block;
+                height: 100%;
+                background: #4a7fd8;
+                border-radius: 3px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-parte.base .hunt-parte-bar i {
+                background: #7d899d;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-parte b {
+                color: #cbd7e8;
+                text-align: right;
+                font-weight: normal;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-loot {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-item {
+                font-size: 9.5px;
+                color: #cbd7e8;
+                background: #151d2a;
+                border: 1px solid rgba(255,255,255,.07);
+                border-radius: 6px;
+                padding: 3px 7px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-item i {
+                color: #66758a;
+                font-style: normal;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-vazio {
+                font-size: 9.5px;
+                color: #66758a;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta {
+                display: flex;
+                flex-direction: column;
+                gap: 7px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-row {
+                display: grid;
+                grid-template-columns: 58px 74px 1fr;
+                align-items: center;
+                gap: 7px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-k {
+                font-size: 9.5px;
+                color: #7d899d;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-in {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                background: #151d2a;
+                border: 1px solid rgba(255,255,255,.09);
+                border-radius: 7px;
+                padding: 4px 7px;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-in:focus-within {
+                border-color: rgba(241,198,68,.55);
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-in span {
+                font-size: 9px;
+                color: #66758a;
+                flex: 0 0 auto;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-in input {
+                flex: 1;
+                min-width: 0;
+                width: 100%;
+                background: transparent;
+                border: none;
+                outline: none;
+                color: #e2ecfa;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 0;
+                -moz-appearance: textfield;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-in input::-webkit-outer-spin-button,
+            #${CONFIG.panelId}
+            .hunt-meta-in input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-out {
+                text-align: right;
+                min-width: 0;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-out b {
+                display: block;
+                font-size: 12px;
+                color: #f1c644;
+            }
+
+            #${CONFIG.panelId}
+            .hunt-meta-out span {
+                display: block;
+                font-size: 8.5px;
+                color: #66758a;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             #${CONFIG.panelId}
