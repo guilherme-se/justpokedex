@@ -119,7 +119,7 @@
     }
 
     const CONFIG = {
-        tooltipSelector: ".inv-tip",
+        tooltipSelector: ".inv-tip, .poke-tip, .pk-tip, [class*='-tip'], [class*='tip-'], [class*='tooltip'], [role='tooltip']",
         panelId: "pokemon-reader-panel",
         storageKey: "pokemon-reader-panel-state",
 
@@ -1258,6 +1258,7 @@
     function isShiny(pokemon) {
         if (!pokemon) return false;
         if (pokemon.nome && pokemon.nome.toLowerCase().includes("shiny")) return true;
+        if (pokemon.nome && pokemon.nome.includes("✨")) return true;
         if (pokemon.multiplicadorQualidade > 1.8) return true;
         if (pokemon.qualidade && pokemon.qualidade.toLowerCase().includes("shiny")) return true;
         return false;
@@ -1894,7 +1895,7 @@
                     <button id="btn-voltar-lista-itens" style="align-self: flex-start; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 10px; font-weight: bold; padding: 4px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                         ‹ Voltar para a lista de itens
                     </button>
-                    
+
                     <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(241,198,68,0.08); border: 1px solid rgba(241,198,68,0.3); border-radius: 10px;">
                         <img src="${escapeHtml(itemSelecionado.icone)}" style="width: 36px; height: 36px; object-fit: contain; border-radius: 4px;" onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png';">
                         <div style="flex: 1; min-width: 0;">
@@ -2086,91 +2087,216 @@
         return Math.round(valor * fator) / fator;
     }
 
+    // -------------------------------------------------------------------------
+    // LEITURA DA TOOLTIP DO JOGO (BILÍNGUE PT/EN, TOLERANTE A LAYOUT)
+    // -------------------------------------------------------------------------
+
+    // Rótulos aceitos por atributo, em ordem de prioridade.
+    // ATENÇÃO: "SpD" (defesa especial) e "Spd" (velocidade) só se distinguem pela
+    // caixa das letras — por isso a primeira passada é case-SENSITIVE.
+    const ROTULOS_STATS = {
+        hp: ["HP", "PS"],
+        atk: ["Atk", "ATK", "Attack", "Ataque"],
+        def: ["Def", "DEF", "Defense", "Defesa"],
+        spa: ["SpA", "SpAtk", "Sp. Atk", "Sp.Atk", "AtkEsp", "SpAtck"],
+        spd: ["SpD", "SpDef", "Sp. Def", "Sp.Def", "DefEsp"],
+        vel: ["Spd", "Spe", "Speed", "Vel", "Velocidade"]
+    };
+
+    const ROTULOS_NIVEL = ["Lv", "Lvl", "Nv", "Level", "Nível", "Nivel"];
+    const ROTULOS_QUALIDADE = ["Quality", "Qualidade", "Rarity", "Raridade"];
+    const ROTULOS_PODER = ["Power", "Poder"];
+    // Marcadores de "está no time / equipado" — nunca são tipos elementais
+    const ROTULOS_ATIVO = ["team", "ativo", "active", "equipped", "equipado", "equipe"];
+
+    // Assinatura barata (roda em textContent, sem custo de layout) para descartar
+    // rapidamente qualquer elemento que não seja a tooltip de Pokémon.
+    // SEM \b de propósito: textContent concatena os elementos filhos sem espaço
+    // ("…IV137/192HP1009Atk847…"), e "2H" não tem fronteira de palavra — com \b
+    // a tooltip real era descartada aqui, antes de chegar ao parser.
+    const ASSINATURA_TOOLTIP = /(?:HP|Atk|SpA|SpD|Ataque|Defesa)\s*[:\-]?\s*\d/i;
+
+    function escaparRegex(valor) {
+        return String(valor).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function alternativasRegex(lista) {
+        return lista.map(escaparRegex).join("|");
+    }
+
+    // Extrai "RÓTULO valor" varrendo o texto inteiro, marcando os trechos já
+    // consumidos para que dois rótulos parecidos não disputem o mesmo número.
+    function extrairStatsDoTexto(texto) {
+        const stats = { hp: null, atk: null, def: null, spa: null, spd: null, vel: null };
+        const consumidos = [];
+        const sobrepoe = (ini, fim) => consumidos.some(r => ini < r.fim && fim > r.ini);
+
+        const tentar = (chave, flags) => {
+            for (const rotulo of ROTULOS_STATS[chave]) {
+                // (?:^|[^A-Za-z]) impede que "Def" case dentro de "SpDef"
+                const re = new RegExp(
+                    `(?:^|[^A-Za-z])${escaparRegex(rotulo)}\\s*[:\\-]?\\s*(\\d[\\d.,]*)`,
+                    "g" + flags
+                );
+                let m;
+                while ((m = re.exec(texto)) !== null) {
+                    const ini = m.index;
+                    const fim = m.index + m[0].length;
+                    if (sobrepoe(ini, fim)) continue;
+                    const valor = numero(m[1]);
+                    if (valor === null) continue;
+                    stats[chave] = valor;
+                    consumidos.push({ ini, fim });
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // 1ª passada exata (resolve SpD vs Spd), 2ª tolerante a caixa
+        Object.keys(stats).forEach(chave => tentar(chave, ""));
+        Object.keys(stats).forEach(chave => {
+            if (stats[chave] === null) tentar(chave, "i");
+        });
+
+        return stats;
+    }
+
+    // Uma linha "de dados" é onde começa o bloco de nível/qualidade/atributos.
+    // Tudo acima dela é cabeçalho (nome, tipos, marcador de time).
+    function ehLinhaDeDados(linha) {
+        return new RegExp(`\\b(?:${alternativasRegex(ROTULOS_NIVEL)})\\.?\\s*\\d`, "i").test(linha)
+            || new RegExp(`\\b(?:${alternativasRegex(ROTULOS_QUALIDADE)})\\b`, "i").test(linha)
+            || new RegExp(`\\b(?:${alternativasRegex(ROTULOS_PODER)})\\b\\s*[:\\-]?\\s*\\d`, "i").test(linha)
+            || /\bIV\s*\d/i.test(linha)
+            || ASSINATURA_TOOLTIP.test(linha);
+    }
+
+    // Reconhece tipos pelo dicionário já existente (TYPE_SYSTEM), então funciona
+    // tanto para "BUG STEEL" quanto para "Inseto Aço". Devolve os nomes em PT
+    // para manter a UI consistente e a tabela de efetividade funcionando.
+    function extrairTiposEEstado(linhasCabecalho) {
+        const tipos = [];
+        let ativo = false;
+
+        for (const linha of linhasCabecalho) {
+            for (const token of linha.split(/[\s·•|,/]+/)) {
+                const limpo = token.replace(/[^\p{L}]/gu, "");
+                if (!limpo) continue;
+
+                if (ROTULOS_ATIVO.includes(limpo.toLowerCase())) {
+                    ativo = true;
+                    continue;
+                }
+
+                const chave = obterChaveTipo(limpo);
+                if (chave) {
+                    const nomePt = TYPE_SYSTEM.TRADUCOES[chave] || limpo;
+                    if (!tipos.includes(nomePt)) tipos.push(nomePt);
+                }
+            }
+        }
+
+        return { tipos, ativo };
+    }
+
+    // Reúne os campos numéricos, que aparecem igual em qualquer layout.
+    function extrairDadosNumericos(texto) {
+        const nivel = numero(
+            texto.match(new RegExp(`\\b(?:${alternativasRegex(ROTULOS_NIVEL)})\\.?\\s*[:\\-]?\\s*(\\d+)`, "i"))?.[1]
+        );
+
+        // Captura o rótulo e o multiplicador juntos: "Quality Lendária ×1.80"
+        const qualidadeMatch = texto.match(new RegExp(
+            `\\b(?:${alternativasRegex(ROTULOS_QUALIDADE)})\\b\\s*[:\\-]?\\s*([\\p{L}]+)?\\s*(?:(?:×|x|\\*)\\s*(\\d+(?:[.,]\\d+)?))?`,
+            "iu"
+        ));
+
+        const rotuloQualidade = qualidadeMatch?.[1]?.trim() || null;
+        // Se o multiplicador não veio colado ao rótulo, procura um "×N" solto
+        const multiplicador = numeroDecimal(
+            qualidadeMatch?.[2] ?? texto.match(/(?:×|\*)\s*(\d+(?:[.,]\d+)?)/)?.[1]
+        );
+
+        const ivMatch = texto.match(/\bIV\s*[:\-]?\s*(\d+)\s*(?:\/\s*(\d+))?/i);
+
+        return {
+            nivel,
+            qualidade: rotuloQualidade
+                ? (multiplicador !== null ? `${rotuloQualidade} ×${multiplicador}` : rotuloQualidade)
+                : null,
+            multiplicadorQualidade: multiplicador,
+            ivAtual: numero(ivMatch?.[1]),
+            ivMaximo: numero(ivMatch?.[2]) ?? CONFIG.maxIVTotal,
+            poder: numero(
+                texto.match(new RegExp(`\\b(?:${alternativasRegex(ROTULOS_PODER)})\\b\\s*[:\\-]?\\s*([\\d.,]+)`, "i"))?.[1]
+            ),
+            ...extrairStatsDoTexto(texto)
+        };
+    }
+
+    // Descarta leituras parciais: sem nível ou com menos de 4 atributos não dá
+    // para estimar IV, e um resultado ruim polui o histórico e o painel.
+    function montarPokemon(nome, tipos, ativo, textoDados) {
+        const nomeLimpo = String(nome || "").trim();
+        if (!nomeLimpo || nomeLimpo.length > 60) return null;
+
+        const dados = extrairDadosNumericos(textoDados);
+        const statsLidos = ["hp", "atk", "def", "spa", "spd", "vel"]
+            .filter(chave => dados[chave] !== null).length;
+        if (dados.nivel === null || statsLidos < 4) return null;
+
+        return { nome: nomeLimpo, tipos, ativo, ...dados };
+    }
+
+    // Estrutura real da tooltip do jogo (.inv-tip). Ler os sub-elementos é bem
+    // mais confiável do que fatiar innerText: o nome vem isolado em
+    // .inv-tip-name, os tipos em .inv-tip-types, e as dicas de rodapé
+    // (.inv-tip-hint — "Double-click to unequip") ficam de fora do bloco de dados.
+    function parseTooltipEstruturada(raiz) {
+        const nomeEl = raiz.querySelector(".inv-tip-name, [class*='tip-name']");
+        if (!nomeEl) return null;
+
+        const tiposEl = raiz.querySelector(".inv-tip-types, [class*='tip-types']");
+        const chipsEl = raiz.querySelector(".inv-tip-chips, [class*='tip-chips']");
+
+        const { tipos } = extrairTiposEEstado([(tiposEl?.textContent || "").trim()]);
+
+        const textoChips = (chipsEl?.textContent || "").toLowerCase();
+        const ativo = ROTULOS_ATIVO.some(rotulo => textoChips.includes(rotulo))
+            || Boolean(chipsEl?.querySelector(".leader, [class*='leader']"));
+
+        const blocoEl = raiz.querySelector(".inv-tip-poke, [class*='tip-poke']");
+        const textoDados = blocoEl
+            ? (blocoEl.innerText || blocoEl.textContent || "")
+            : Array.from(raiz.children)
+                .filter(el => !el.matches(".inv-tip-hint, [class*='tip-hint'], [class*='tip-name'], [class*='tip-types']"))
+                .map(el => el.innerText || el.textContent || "")
+                .join("\n");
+
+        return montarPokemon(nomeEl.textContent, tipos, ativo, textoDados);
+    }
+
+    // Reserva para quando a estrutura mudar: interpreta só o texto corrido.
     function parsePokemon(texto) {
         if (!texto) return null;
 
+        // Quebra por linha e também por colunas separadas por espaços largos —
+        // "Lv 448   Quality Lendária ×1.80   IV 122/192" vira três entradas.
         const linhas = texto
-            .split("\n")
+            .split(/\r?\n/)
+            .flatMap(linha => linha.split(/\s{2,}|\t+/))
             .map(linha => linha.trim())
             .filter(Boolean);
 
         if (!linhas.length) return null;
 
-        const nome = linhas[0] || "Desconhecido";
-        const tipos = [];
+        // Cabeçalho = tudo entre o nome e a primeira linha de dados
+        let fimCabecalho = linhas.findIndex((linha, i) => i > 0 && ehLinhaDeDados(linha));
+        if (fimCabecalho === -1) fimCabecalho = linhas.length;
+        const { tipos, ativo } = extrairTiposEEstado(linhas.slice(1, fimCabecalho));
 
-        for (const linha of linhas.slice(1)) {
-            if (
-                /^(Ativo|Nv\s|Qualidade|IV\s|HP\s|Atk\s|Def\s|SpA\s|SpD\s|Vel\s|.*Poder)/i.test(
-                    linha
-                )
-            ) {
-                break;
-            }
-
-            tipos.push(linha);
-        }
-
-        const ivMatch =
-            texto.match(/IV\s*(\d+)\s*\/\s*(\d+)/i);
-
-        const qualidadeTexto =
-            texto.match(/Qualidade\s+([^\n]+)/i)?.[1]?.trim() ||
-            null;
-
-        const multiplicador =
-            numeroDecimal(
-                qualidadeTexto?.match(
-                    /(?:×|x)\s*([\d.,]+)/i
-                )?.[1]
-            );
-
-        return {
-            nome,
-            tipos,
-
-            ativo: linhas.some(linha =>
-                linha.toLowerCase().includes("ativo")
-            ),
-
-            nivel: numero(
-                texto.match(/Nv\s*(\d+)/i)?.[1]
-            ),
-
-            qualidade: qualidadeTexto,
-            multiplicadorQualidade: multiplicador,
-
-            ivAtual: numero(ivMatch?.[1]),
-            ivMaximo: numero(ivMatch?.[2]),
-
-            hp: numero(
-                texto.match(/HP\s+([\d.,]+)/i)?.[1]
-            ),
-
-            atk: numero(
-                texto.match(/Atk\s+([\d.,]+)/i)?.[1]
-            ),
-
-            def: numero(
-                texto.match(/Def\s+([\d.,]+)/i)?.[1]
-            ),
-
-            spa: numero(
-                texto.match(/SpA\s+([\d.,]+)/i)?.[1]
-            ),
-
-            spd: numero(
-                texto.match(/SpD\s+([\d.,]+)/i)?.[1]
-            ),
-
-            vel: numero(
-                texto.match(/Vel\s+([\d.,]+)/i)?.[1]
-            ),
-
-            poder: numero(
-                texto.match(/Poder\s+([\d.,]+)/i)?.[1]
-            )
-        };
+        return montarPokemon(linhas[0], tipos, ativo, texto);
     }
 
     function escapeHtml(valor) {
@@ -3738,7 +3864,7 @@
                     ${renderLinhaComparacao("SpA", "#2196f3", ivsFix.spa, ivsAct.spa)}
                     ${renderLinhaComparacao("SpD", "#00bcd4", ivsFix.spd, ivsAct.spd)}
                     ${renderLinhaComparacao("Spe", "#e91e63", ivsFix.vel, ivsAct.vel)}
-                    
+
                     ${renderLinhaComparacao("Σ IV", "#cad6e7", sumFix, sumAct)}
                     ${renderLinhaComparacao("Qualidade", "#f1c644", formatarDecimal(qualFix, 2), formatarDecimal(qualAct, 2))}
                     ${renderLinhaComparacao("Poder total", "#ffb35c", formatarNumero(powerFix), formatarNumero(powerAct))}
@@ -4275,7 +4401,7 @@
                 gap: 4px;
             ">
                 <span style="color: ${cor}; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">${labelText}</span>
-                
+
                 <input
                     id="${idCurrent}"
                     type="number"
@@ -4298,9 +4424,9 @@
                     "
                     class="flat-stat-input"
                 >
-                
+
                 <div style="width: 100%; border-top: 1px dashed rgba(255,255,255,0.12); margin: 2px 0;"></div>
-                
+
                 <div style="display: flex; align-items: center; justify-content: center; gap: 3px; font-size: 10px; color: #8795aa; width: 100%;">
                     <span>base</span>
                     <input
@@ -4999,24 +5125,53 @@
         );
     }
 
-    function processarTooltip(tooltip) {
-        if (!mouseTrackingEnabled) return;
+    let ultimoTooltipBruto = "";
 
-        const texto =
-            tooltip?.innerText?.trim();
+    function tooltipEstaVisivel(el) {
+        if (!el || !el.isConnected) return false;
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        const estilo = getComputedStyle(el);
+        if (estilo.display === "none" || estilo.visibility === "hidden") return false;
+        return Number(estilo.opacity) !== 0;
+    }
 
-        if (!texto || texto === ultimoTexto) {
-            return;
+    // O seletor largo também casa com os filhos (.inv-tip-poke, .inv-tip-name…).
+    // Lidos isoladamente eles virariam um "Pokémon" chamado "HP 1017", então
+    // sempre subimos para o contêiner externo antes de interpretar.
+    function raizDaTooltip(el) {
+        const conhecida = el.closest(".inv-tip");
+        if (conhecida) return conhecida;
+
+        let raiz = el;
+        let pai = el.parentElement;
+        for (let i = 0; i < 6 && pai && pai !== document.body; i++, pai = pai.parentElement) {
+            if (pai.matches?.(CONFIG.tooltipSelector)) raiz = pai;
         }
+        return raiz;
+    }
 
-        if (
-            !texto.includes("Poder") ||
-            !/Nv\s*\d+/i.test(texto)
-        ) {
-            return;
-        }
+    function processarTooltip(elemento) {
+        if (!mouseTrackingEnabled || !(elemento instanceof HTMLElement)) return;
 
-        const pokemon = parsePokemon(texto);
+        const tooltip = raizDaTooltip(elemento);
+
+        // Triagem barata: textContent não força layout, innerText força.
+        const bruto = tooltip.textContent || "";
+        if (bruto.length < 12 || bruto.length > 1200) return;
+        if (!ASSINATURA_TOOLTIP.test(bruto)) return;
+
+        // Nunca lê a própria interface do script
+        if (tooltip.closest(`#${CONFIG.panelId}, #moves-panel, #items-panel, #shiny-log-panel`)) return;
+        if (!tooltipEstaVisivel(tooltip)) return;
+
+        const texto = (tooltip.innerText || "").trim();
+        if (!texto || texto === ultimoTexto) return;
+
+        ultimoTooltipBruto = texto;
+
+        // Leitura estruturada primeiro (precisa); texto corrido como reserva.
+        const pokemon = parseTooltipEstruturada(tooltip) || parsePokemon(texto);
 
         if (!pokemon) return;
 
@@ -5048,55 +5203,92 @@
         );
     }
 
+    // Percorre os mesmos portões do processarTooltip e mostra qual barrou.
+    // Serve para quando a leitura funciona (lerAgora devolve os dados) mas o
+    // painel continua em "Aguardando Pokémon".
+    function diagnosticarTooltip(el) {
+        const alvo = el || document.querySelector(".inv-tip");
+        if (!alvo) return { ok: false, motivo: "Nenhum elemento .inv-tip na tela agora" };
+
+        const tooltip = raizDaTooltip(alvo);
+        const bruto = tooltip.textContent || "";
+        const texto = (tooltip.innerText || "").trim();
+
+        const passos = {
+            leituraComMouseLigada: mouseTrackingEnabled,
+            tamanhoTextContent: bruto.length,
+            passaAssinatura: ASSINATURA_TOOLTIP.test(bruto),
+            ehInterfaceDoScript: Boolean(tooltip.closest(`#${CONFIG.panelId}, #moves-panel, #items-panel, #shiny-log-panel`)),
+            visivel: tooltipEstaVisivel(tooltip),
+            textoIgualAoUltimo: Boolean(texto) && texto === ultimoTexto,
+            estruturado: parseTooltipEstruturada(tooltip),
+            textContent: bruto
+        };
+
+        passos.ok = passos.leituraComMouseLigada
+            && passos.tamanhoTextContent >= 12 && passos.tamanhoTextContent <= 1200
+            && passos.passaAssinatura
+            && !passos.ehInterfaceDoScript
+            && passos.visivel
+            && Boolean(passos.estruturado);
+
+        if (!passos.ok) {
+            passos.motivo = !passos.leituraComMouseLigada ? "Leitura com Mouse está DESLIGADA (botão 🐭 no cabeçalho)"
+                : !passos.passaAssinatura ? "textContent não bate com ASSINATURA_TOOLTIP"
+                    : passos.ehInterfaceDoScript ? "Elemento pertence à interface do próprio script"
+                        : !passos.visivel ? "Elemento considerado invisível"
+                            : !passos.estruturado ? "Parser rejeitou (sem nível ou menos de 4 atributos)"
+                                : "Fora da faixa de tamanho aceita";
+        }
+        return passos;
+    }
+
+    // Varre os candidatos pelo seletor. processarTooltip descarta sozinho quem
+    // não tem a assinatura, então varrer vários é barato e resistente a
+    // mudanças de classe no jogo.
+    function varrerTooltipsAgora() {
+        let candidatos;
+        try {
+            candidatos = document.querySelectorAll(CONFIG.tooltipSelector);
+        } catch (e) {
+            return;
+        }
+        const total = Math.min(candidatos.length, 20);
+        for (let i = 0; i < total; i++) {
+            processarTooltip(candidatos[i]);
+        }
+    }
+
     function observarTooltips() {
-        const observer =
-            new MutationObserver(mutations => {
-                for (const mutation of mutations) {
-                    for (
-                        const node of
-                        mutation.addedNodes
-                    ) {
-                        if (
-                            !(
-                                node instanceof
-                                HTMLElement
-                            )
-                        ) {
-                            continue;
-                        }
+        const observer = new MutationObserver(mutations => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (!(node instanceof HTMLElement)) continue;
 
-                        if (
-                            node.matches?.(
-                                CONFIG.tooltipSelector
-                            )
-                        ) {
-                            processarTooltip(node);
-                        }
+                    let bateuPeloSeletor = false;
 
-                        const tooltipInterno =
-                            node.querySelector?.(
-                                CONFIG.tooltipSelector
-                            );
+                    if (node.matches?.(CONFIG.tooltipSelector)) {
+                        bateuPeloSeletor = true;
+                        processarTooltip(node);
+                    }
 
-                        if (tooltipInterno) {
-                            processarTooltip(
-                                tooltipInterno
-                            );
-                        }
+                    const internos = node.querySelectorAll?.(CONFIG.tooltipSelector);
+                    if (internos?.length) {
+                        bateuPeloSeletor = true;
+                        internos.forEach(el => processarTooltip(el));
+                    }
+
+                    // Rede de segurança: se o jogo renomear as classes de novo, o nó
+                    // ainda é reconhecido pelo conteúdo. Só entra quando o seletor
+                    // falhou, para não reprocessar um contêiner que já foi coberto.
+                    if (!bateuPeloSeletor && ASSINATURA_TOOLTIP.test(node.textContent || "")) {
+                        processarTooltip(node);
                     }
                 }
+            }
 
-                const tooltipAtual =
-                    document.querySelector(
-                        CONFIG.tooltipSelector
-                    );
-
-                if (tooltipAtual) {
-                    processarTooltip(
-                        tooltipAtual
-                    );
-                }
-            });
+            varrerTooltipsAgora();
+        });
 
         observer.observe(document.body, {
             childList: true,
@@ -5104,9 +5296,25 @@
             characterData: true
         });
 
-        console.log(
-            "[Poké Leitor] Poké Leitor e Analisador iniciado."
-        );
+        // Diagnóstico pelo console do navegador
+        window.__jpdTooltip = {
+            get seletor() { return CONFIG.tooltipSelector; },
+            get ultimoTexto() { return ultimoTooltipBruto; },
+            get ultimoPokemon() { return ultimoPokemon; },
+            listarCandidatos: () => Array.from(document.querySelectorAll(CONFIG.tooltipSelector))
+                .filter(el => ASSINATURA_TOOLTIP.test(el.textContent || "")),
+            testar: texto => parsePokemon(texto),
+            // Lê a tooltip que estiver na tela agora, pelo caminho estruturado
+            lerAgora: () => {
+                const el = document.querySelector(".inv-tip");
+                return el ? { elemento: el, estruturado: parseTooltipEstruturada(el), texto: el.innerText } : null;
+            },
+            varrer: varrerTooltipsAgora,
+            // Mostra em qual etapa a tooltip foi descartada
+            diagnosticar: diagnosticarTooltip
+        };
+
+        console.log("[Poké Leitor] Poké Leitor e Analisador iniciado.");
     }
 
     function criarCSS() {
@@ -9604,7 +9812,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                 <div style="background:linear-gradient(180deg,#e8403d 0%,#b91f27 55%,#8e141c 100%);border-bottom:2px solid #151515;padding:10px 16px;font-size:14px;font-weight:800;color:#ffffff;display:flex;align-items:center;gap:8px;text-shadow:0 1px 2px rgba(0,0,0,0.6);">
                     <span>♦ CONFIRMAR COMPRA</span>
                 </div>
-                
+
                 <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
                     <div class="confirm-subtext" style="font-size:13px;color:#e2e8f0;font-weight:700;">
                         Você vai comprar <b class="confirm-qty-label" style="color:#fcd34d;">${selectedQty}×</b> ${name}.
@@ -9731,7 +9939,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                 </div>
                 <div class="portable-depot-filter-bar" style="background:#141924;border-bottom:1px solid #212c3e;padding:10px 16px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
                     <input type="text" id="depot-search-input" placeholder="🔍 Buscar Pokémon..." style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 12px;color:#fff;font-size:12px;width:170px;outline:none;" />
-                    
+
                     <div style="display:flex;align-items:center;gap:4px;font-size:12px;color:#cbd5e1;font-weight:bold;">
                         <span style="color:#f1c644;">IV:</span>
                         <input type="number" id="depot-iv-min" placeholder="de" style="background:#0b0e17;border:1px solid #28374d;border-radius:6px;padding:6px 8px;color:#fff;font-size:12px;width:55px;outline:none;" />
@@ -10106,7 +10314,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                         <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:6px;height:6px;border:1.5px solid #171717;border-radius:50%;background:#fff;"></span>
                     </div>
                     <span>JustPokédex <span style="font-size:13px;color:#fcd34d;font-weight:700;margin-left:4px;">· Mercado Global Portátil</span></span>
-                    
+
                     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
                         <button class="market-refresh" type="button" style="background:#171b23;color:#63b3ed;border:1px solid #273546;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;">↻ Atualizar</button>
                         <button class="market-close" type="button" style="background:#e53935;color:#fff;border:1px solid #ff7961;border-radius:6px;width:26px;height:26px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
@@ -11447,7 +11655,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
                         <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:6px;height:6px;border:1.5px solid #171717;border-radius:50%;background:#fff;"></span>
                     </div>
                     <span style="font-size:15px;letter-spacing:0.3px;color:#fff;">JustPokédex <span style="font-size:13px;color:#fcd34d;font-weight:700;margin-left:4px;">· Loja do Mark</span></span>
-                    
+
                     <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
                         <button class="mark-tab mark-tab-comprar active" type="button" style="background:linear-gradient(180deg,#e53935 0%,#c62828 100%);color:#fff;border:1px solid #ff7961;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 2px 6px rgba(229,57,53,0.4);transition:all 0.15s ease;">🛒 Comprar</button>
                         <button class="mark-tab mark-tab-vender" type="button" style="background:#171b23;color:#94a3b8;border:1px solid #273546;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:800;cursor:pointer;transition:all 0.15s ease;">💰 Vender</button>
