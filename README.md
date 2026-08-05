@@ -22,6 +22,8 @@
 
 | Ícone | Funcionalidade | Descrição |
 | :---: | :--- | :--- |
+| ⏱️ | **Tracker de Hunt** `✨ NOVO` | Rastreia a sessão de caça em tempo real: **XP/h** e **abates/h** em janela móvel, barras de progresso do treinador e do Pokémon ativo, tempo estimado para o próximo nível e para um nível-alvo configurável, composição do XP por multiplicador (base, VIP, boost, streak, evento, dia do tipo) e loot acumulado. Pausa sozinho ao sair da hunt e retoma ao voltar. |
+| ⬆️ | **Calculadora de XP** `✨ NOVO` | Informe nível atual e alvo e veja quanto XP falta, com gráfico da curva, custo nível a nível e conversão para número de abates. Multiplicadores de VIP, XP Boost, Pokédex e Streak Points. |
 | 🏪 | **Mercado Global & Vendas Portátil** `✨ NOVO` | Permite navegar no mercado global, criar anúncios de **Itens, Poké Bolas e Pokémons**, consultar e cancelar anúncios ativos com filtros por IV, Qualidade e Tipo. *(Créditos: desjunior)* |
 | 📜 | **Log de Shinies Acoplado (Timestamps)** `✨ NOVO` | Painel lateral estilo Poképédia com histórico em tempo real dos Shinies que apareceram, data e hora exatas (`🕒 HH:MM:SS`), tempo decorrido e sem popups intrusivos. |
 | ☁️ | **Auto-Atualização via GitHub** `✨ NOVO` | Sistema integrado de atualização com o repositório do GitHub. Inclui botão de toggle (`☁️`) na barra superior para Ligar/Desligar verificações automáticas e botão manual de checagem com suporte a instalação de 1 clique no Tampermonkey. |
@@ -64,6 +66,20 @@ $$IV_{\text{float}} = \frac{\left(\frac{S}{F}\right) - B}{2}$$
 $$IV_{\text{Total}} = \text{Math.ceil}\left(\sum IV_{\text{float}}\right)$$
 
 $$\text{Poder Oficial} = (\text{Soma dos 6 Stats}) \cdot Q$$
+
+### 3️⃣ Curva de XP e Níveis
+
+O XP acumulado necessário para alcançar o nível $L$ segue uma curva cúbica, **sem teto de nível**:
+
+$$XP_{\text{total}}(L) = \text{round}\left(\frac{50}{3} \cdot (L^3 - 6L^2 + 17L - 12)\right)$$
+
+O custo de um nível isolado tem forma fechada, bem mais barata de calcular:
+
+$$XP(L-1 \rightarrow L) = 50 \cdot (L^2 - 5L + 8)$$
+
+- Todos os valores da curva são inteiros exatos — o `round()` nunca chega a arredondar nada.
+- **Treinador e Pokémon usam a mesma curva.** O campo `xp` que o servidor envia é **acumulado desde o Nv 1**, não o resto dentro do nível, então o progresso é $(xp - XP_{\text{total}}(L)) / XP(L \rightarrow L+1)$.
+- Os multiplicadores (VIP, XP Boost, Streak Points, evento, dia do tipo) **somam entre si** antes de multiplicar o XP base do abate.
 
 ---
 
