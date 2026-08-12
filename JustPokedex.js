@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JustPokedex
 // @namespace    https://github.com/guilherme-se/justpokedex
-// @version      3.0.1
+// @version      3.0.2
 // @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil e Detector de Shinies
 // @match        https://*.idleworld.online/*
 // @grant        none
@@ -137,7 +137,7 @@
         }
     };
 
-    const CURRENT_SCRIPT_VERSION = "3.0.1";
+    const CURRENT_SCRIPT_VERSION = "3.0.2";
     const GITHUB_RAW_URL = "https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js";
     const AUTO_UPDATE_SETTING_KEY = "justpokedex-auto-update-enabled";
 
@@ -2206,17 +2206,22 @@
             texto.match(new RegExp(`\\b(?:${alternativasRegex(ROTULOS_NIVEL)})\\.?\\s*[:\\-]?\\s*(\\d+)`, "i"))?.[1]
         );
 
-        // Captura o rótulo e o multiplicador juntos: "Quality Lendária ×1.80"
+        // Captura o rótulo e o multiplicador juntos: "Quality Lendária ×1.80" ou "Raridade Lendária x1.80"
         const qualidadeMatch = texto.match(new RegExp(
             `\\b(?:${alternativasRegex(ROTULOS_QUALIDADE)})\\b\\s*[:\\-]?\\s*([\\p{L}]+)?\\s*(?:(?:×|x|\\*)\\s*(\\d+(?:[.,]\\d+)?))?`,
             "iu"
         ));
 
-        const rotuloQualidade = qualidadeMatch?.[1]?.trim() || null;
-        // Se o multiplicador não veio colado ao rótulo, procura um "×N" solto
+        let rotuloQualidade = qualidadeMatch?.[1]?.trim() || null;
+        // Se o multiplicador não veio colado ao rótulo, procura um "×N" ou "xN" solto
         const multiplicador = numeroDecimal(
-            qualidadeMatch?.[2] ?? texto.match(/(?:×|\*)\s*(\d+(?:[.,]\d+)?)/)?.[1]
+            qualidadeMatch?.[2] ?? texto.match(/(?:×|x|\*)\s*(\d+(?:[.,]\d+)?)/i)?.[1]
         );
+
+        if (!rotuloQualidade && multiplicador !== null && multiplicador > 1.0) {
+            const etiq = obterEtiquetaQualidade(multiplicador);
+            rotuloQualidade = etiq.label;
+        }
 
         const ivMatch = texto.match(/\bIV\s*[:\-]?\s*(\d+)\s*(?:\/\s*(\d+))?/i);
 
@@ -2292,10 +2297,6 @@
         if (!linhas.length) return null;
 
         // Cabeçalho = tudo entre o nome e a primeira linha de dados
-        let fimCabecalho = linhas.findIndex((linha, i) => i > 0 && ehLinhaDeDados(linha));
-        if (fimCabecalho === -1) fimCabecalho = linhas.length;
-        const { tipos, ativo } = extrairTiposEEstado(linhas.slice(1, fimCabecalho));
-
         return montarPokemon(linhas[0], tipos, ativo, texto);
     }
 
@@ -4019,22 +4020,31 @@
 
         if (!area) return;
 
-        area.innerHTML = `
-            <div class="loading">
-                <div class="loading-ball">
-                    <span></span>
+        const panelBody = document.getElementById("panel-body");
+        const scrollSalvo = panelBody ? panelBody.scrollTop : 0;
+
+        const nomeNormalizado = normalizarNomePokemon(pokemon.nome);
+        const nomeBrutoLimpo = String(pokemon.nome || "").toLowerCase().trim();
+
+        // Só exibe a tela de loading se o Pokémon NÃO estiver em cache local
+        if (!apiCache[nomeNormalizado] && !apiCache[nomeBrutoLimpo]) {
+            area.innerHTML = `
+                <div class="loading">
+                    <div class="loading-ball">
+                        <span></span>
+                    </div>
+
+                    <strong>
+                        Preparando análise
+                    </strong>
+
+                    <span>
+                        Buscando os atributos-base de
+                        ${escapeHtml(pokemon.nome)}...
+                    </span>
                 </div>
-
-                <strong>
-                    Preparando análise
-                </strong>
-
-                <span>
-                    Buscando os atributos-base de
-                    ${escapeHtml(pokemon.nome)}...
-                </span>
-            </div>
-        `;
+            `;
+        }
 
         const idConsulta =
             `${pokemon.nome}-${Date.now()}`;
@@ -4057,6 +4067,14 @@
                 pokemon,
                 bases
             );
+
+            if (panelBody && scrollSalvo > 0) {
+                panelBody.scrollTop = scrollSalvo;
+                requestAnimationFrame(() => {
+                    if (panelBody) panelBody.scrollTop = scrollSalvo;
+                });
+            }
+
             atualizarPainelComparacao();
         } catch (erro) {
             console.warn(
@@ -4082,6 +4100,14 @@
                 },
                 erro.message
             );
+
+            if (panelBody && scrollSalvo > 0) {
+                panelBody.scrollTop = scrollSalvo;
+                requestAnimationFrame(() => {
+                    if (panelBody) panelBody.scrollTop = scrollSalvo;
+                });
+            }
+
             atualizarPainelComparacao();
         }
     }
