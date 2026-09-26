@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JustPokedex
 // @namespace    https://github.com/guilherme-se/justpokedex
-// @version      3.0.3
+// @version      3.0.4
 // @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil e Detector de Shinies
 // @match        https://*.idleworld.online/*
 // @grant        none
@@ -12672,64 +12672,7 @@ DIAGNÓSTICO JUSTPOKÉDEX CATCH ANALYZER
     }
 
     function injetarBotoesDockLojasEDepot() {
-        const gameDock = document.querySelector("nav.game-dock");
-        if (!gameDock) return;
-
-        if (!document.getElementById("dock-btn-shops-wrapper")) {
-            const wrap = document.createElement("div");
-            wrap.id = "dock-btn-shops-wrapper";
-            wrap.className = "dock-poke-wrap script-shop-wrap";
-            wrap.style.cssText = "position:relative;display:inline-flex;align-items:center;";
-
-            const btnShops = document.createElement("button");
-            btnShops.id = "dock-btn-shops";
-            btnShops.className = "dock-btn";
-            btnShops.type = "button";
-            btnShops.textContent = "🏪";
-            btnShops.title = "Lojas & Vendas Portáteis";
-            btnShops.style.cssText = "background:transparent;border:0;box-shadow:none;font-size:16px;cursor:pointer;padding:4px 6px;";
-
-            btnShops.addEventListener("click", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const menu = obterOuCriarMenuDockLojasGlobal();
-                const estaAberto = menu.style.display === "block";
-                if (estaAberto) {
-                    menu.style.display = "none";
-                } else {
-                    const rect = btnShops.getBoundingClientRect();
-                    menu.style.top = (rect.bottom + 6) + "px";
-                    const leftPos = Math.max(10, Math.min(rect.left, window.innerWidth - 200));
-                    menu.style.left = leftPos + "px";
-                    menu.style.display = "block";
-                }
-            });
-
-            const onDocClickShops = (e) => {
-                const menu = document.getElementById("dock-shops-menu-global");
-                if (menu && !btnShops.contains(e.target) && !menu.contains(e.target)) {
-                    menu.style.display = "none";
-                }
-            };
-            document.removeEventListener("click", window._dockShopsMenuDismiss);
-            window._dockShopsMenuDismiss = onDocClickShops;
-            document.addEventListener("click", onDocClickShops);
-
-            wrap.appendChild(btnShops);
-            gameDock.appendChild(wrap);
-        }
-
-        if (!document.getElementById("dock-btn-depot")) {
-            const btnDepot = document.createElement("button");
-            btnDepot.id = "dock-btn-depot";
-            btnDepot.className = "dock-btn";
-            btnDepot.type = "button";
-            btnDepot.textContent = "📦";
-            btnDepot.title = "Depot Portátil";
-            btnDepot.style.cssText = "background:transparent;border:0;box-shadow:none;font-size:16px;cursor:pointer;padding:4px 6px;";
-            btnDepot.addEventListener("click", showPortableDepot);
-            gameDock.appendChild(btnDepot);
-        }
+        // Botões de Lojas e Depot removidos do dock
     }
 
     // -------------------------------------------------------------------------
