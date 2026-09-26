@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JustPokedex
 // @namespace    https://github.com/guilherme-se/justpokedex
-// @version      3.0.2
+// @version      3.0.3
 // @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil e Detector de Shinies
 // @match        https://*.idleworld.online/*
 // @grant        none
@@ -1185,12 +1185,14 @@
             (typeof obj.attack === "string" ? obj.attack : null) ||
             (typeof obj.skill === "string" ? obj.skill : obj.skill?.name);
         const dano = Number(obj.damage ?? obj.dmg ?? obj.dano ?? obj.amount);
+        const cat = obj.category || obj.damageClass || obj.moveCategory || obj.split || obj.kind || obj.class || (obj.move && typeof obj.move === "object" ? (obj.move.category || obj.move.damageClass || obj.move.split || obj.move.kind) : null) || null;
         if (typeof nomeGolpe === "string" && nomeGolpe.trim() && Number.isFinite(dano)) {
             resultados.push({
                 name: nomeGolpe.trim(),
                 dmg: dano,
                 type: typeof obj.type === "string" ? obj.type : null,
-                eff: Number.isFinite(Number(obj.eff)) ? Number(obj.eff) : null
+                eff: Number.isFinite(Number(obj.eff)) ? Number(obj.eff) : null,
+                category: typeof cat === "string" ? cat : null
             });
             return resultados;
         }
@@ -1215,7 +1217,8 @@
                 total: atual.total + g.dmg,
                 count: atual.count + 1,
                 type: g.type || atual.type,
-                eff: g.eff
+                eff: g.eff,
+                category: g.category || atual.category
             });
         }
         atualizarPainelMoves();
@@ -1384,6 +1387,69 @@
         return `<span class="type-badge" style="background:${cor}; color:#fff; font-size:9.5px; font-weight:bold; padding:2px 6px; border-radius:10px; display:inline-block; line-height:1.2; text-shadow:0 1px 2px rgba(0,0,0,0.6);">${escapeHtml(nomePt)}</span>`;
     }
 
+    function obterCategoriaGolpe(move) {
+        if (!move) return "physical";
+        const catRaw = String(move.category || move.damageClass || move.split || move.kind || "").toLowerCase();
+        if (catRaw.includes("physic") || catRaw.includes("fisic") || catRaw.includes("físic") || catRaw === "p") return "physical";
+        if (catRaw.includes("specia") || catRaw.includes("especi") || catRaw === "s") return "special";
+        if (catRaw.includes("status") || catRaw.includes("suport") || catRaw.includes("support")) return "status";
+
+        const nome = String(move.name || "").toLowerCase().trim();
+
+        // Status moves conhecidos
+        const statusMoves = new Set([
+            "growl", "tail whip", "leer", "swords dance", "agility", "toxic", "hypnosis", "sing", "supersonic",
+            "thunder wave", "will-o-wisp", "rest", "recover", "soft-boiled", "synthesis", "moonlight", "morning sun",
+            "reflect", "light screen", "protect", "substitute", "leech seed", "haze", "mist", "screech", "string shot",
+            "spores", "sleep powder", "stun spore", "poison powder", "confuse ray", "charm", "amnesia", "barrier",
+            "calm mind", "nasty plot", "dragon dance", "rock polish", "iron defense", "bulk up", "tail glow"
+        ]);
+        if (statusMoves.has(nome)) return "status";
+
+        // Special moves conhecidos
+        const specialMoves = new Set([
+            "flamethrower", "fire blast", "ember", "heat wave", "overheat", "hydro pump", "surf", "water gun", "scald",
+            "bubble beam", "ice beam", "blizzard", "aurora beam", "thunderbolt", "thunder", "thundershock", "discharge",
+            "solar beam", "energy ball", "giga drain", "mega drain", "vine whip", "razor leaf", "psychic", "psybeam",
+            "confusion", "shadow ball", "dragon pulse", "draco meteor", "hyper voice", "tri attack", "swift", "snore",
+            "dark pulse", "flash cannon", "dazzling gleam", "sludge bomb", "sludge wave", "earth power", "power gem",
+            "focus blast", "aura sphere", "air slash"
+        ]);
+        if (specialMoves.has(nome)) return "special";
+
+        // Physical moves conhecidos
+        const physicalMoves = new Set([
+            "tackle", "scratch", "pound", "quick attack", "body slam", "take down", "double-edge", "hyper beam",
+            "earthquake", "rock slide", "stone edge", "rock tomb", "waterfall", "aqua tail", "fire punch", "thunder punch",
+            "ice punch", "mach punch", "bullet punch", "close combat", "cross chop", "brick break", "drain punch",
+            "superpower", "outrage", "dragon claw", "crunch", "bite", "night slash", "sucker punch", "shadow claw",
+            "iron tail", "steel wing", "poison jab", "cross poison", "leaf blade", "wood hammer",
+            "brave bird", "fly", "aerial ace", "drill peck", "wing attack", "headbutt", "slash", "extreme speed"
+        ]);
+        if (physicalMoves.has(nome)) return "physical";
+
+        // Fallback baseado no tipo do golpe
+        const tipoEng = move.type ? obterChaveTipo(move.type) : null;
+        if (tipoEng) {
+            const tiposEspeciais = new Set(["fire", "water", "grass", "electric", "psychic", "ice", "dragon", "dark", "fairy"]);
+            if (tiposEspeciais.has(tipoEng.toLowerCase())) {
+                return "special";
+            }
+        }
+
+        return "physical";
+    }
+
+    function categoryBadgeHtml(cat) {
+        if (cat === "special") {
+            return `<span class="category-badge special" title="Golpe Especial" style="background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.35); font-size: 8.5px; font-weight: bold; padding: 1.5px 5px; border-radius: 6px; display: inline-flex; align-items: center; gap: 2px; line-height: 1.2;">✨ Especial</span>`;
+        } else if (cat === "status") {
+            return `<span class="category-badge status" title="Golpe de Status" style="background: rgba(168, 85, 247, 0.15); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.35); font-size: 8.5px; font-weight: bold; padding: 1.5px 5px; border-radius: 6px; display: inline-flex; align-items: center; gap: 2px; line-height: 1.2;">🛡️ Status</span>`;
+        } else {
+            return `<span class="category-badge physical" title="Golpe Físico" style="background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 8.5px; font-weight: bold; padding: 1.5px 5px; border-radius: 6px; display: inline-flex; align-items: center; gap: 2px; line-height: 1.2;">⚔️ Físico</span>`;
+        }
+    }
+
     function obterEfetividadeHtml(pokemon) {
         const tiposEng = pokemon.tipos
             .map(t => obterChaveTipo(t))
@@ -1495,10 +1561,12 @@
             if (typeof s === "string") return { name: s };
             if (!s || typeof s !== "object") return null;
             const nome = s.name || s.moveName || s.move || s.id;
+            const cat = s.category || s.damageClass || s.moveCategory || s.split || s.kind || s.class || s.categoryName || s.attackType || s.typeCategory || null;
             return nome ? {
                 name: String(nome),
                 power: s.power ?? s.basePower ?? s.damage ?? s.dmg ?? null,
-                type: s.type ? String(s.type) : (s.element ? String(s.element) : null)
+                type: s.type ? String(s.type) : (s.element ? String(s.element) : null),
+                category: typeof cat === "string" ? cat : null
             } : null;
         };
 
@@ -1546,8 +1614,8 @@
         const rect = mainPanel.getBoundingClientRect();
         let left = rect.right + 8;
 
-        if (left + 300 > window.innerWidth - 8) {
-            left = rect.left - 308;
+        if (left + 370 > window.innerWidth - 8) {
+            left = rect.left - 378;
         }
 
         movesPanel.style.left = `${Math.max(8, left)}px`;
@@ -1609,6 +1677,8 @@
             const danoInfo = danoPorGolpe.get(chave);
             const tipoEng = m.type ? obterChaveTipo(m.type) : null;
             const badgeHtml = tipoEng ? typeBadgeHtml(tipoEng) : "";
+            const catGolpe = obterCategoriaGolpe(m);
+            const catBadgeHtml = categoryBadgeHtml(catGolpe);
             const isAtivo = ultimoGolpeUsado === chave;
 
             if (isAtivo) {
@@ -1625,6 +1695,7 @@
                         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
                             <div style="display: flex; align-items: center; gap: 6px;">
                                 ${badgeHtml}
+                                ${catBadgeHtml}
                                 ${m.power ? `<span style="color: #8c98aa; font-size: 9px;">poder ${m.power}</span>` : ""}
                             </div>
                             <span style="color: #ffd54a; font-weight: bold; font-size: 11px;">
@@ -1642,11 +1713,12 @@
 
                 html += `
                     <div class="move-card" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; min-height: 32px;">
-                        <strong style="color: #fff; font-size: 11px; font-weight: normal; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <strong style="color: #fff; font-size: 11px; font-weight: normal; max-width: 165px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             ${escapeHtml(m.name)}
                         </strong>
-                        <div style="display: flex; align-items: center; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap;">
                             ${badgeHtml}
+                            ${catBadgeHtml}
                             ${m.power ? `<span style="color: #8c98aa; font-size: 9px;">poder ${m.power}</span>` : ""}
                             ${danoExtraHtml}
                         </div>
@@ -1669,15 +1741,18 @@
             for (const g of golpesTomados) {
                 const tipoEng = g.type ? obterChaveTipo(g.type) : null;
                 const badgeHtml = tipoEng ? typeBadgeHtml(tipoEng) : "";
+                const catGolpe = obterCategoriaGolpe(g);
+                const catBadgeHtml = categoryBadgeHtml(catGolpe);
                 const dmgFormatado = formatarNumero(g.lastDmg);
 
                 html += `
                     <div class="move-card taken" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(240,90,98,0.02); border: 1px solid rgba(240,90,98,0.06); border-radius: 10px; min-height: 32px;">
-                        <strong style="color: #edf4ff; font-size: 11px; font-weight: normal; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <strong style="color: #edf4ff; font-size: 11px; font-weight: normal; max-width: 165px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             ${escapeHtml(g.name)}
                         </strong>
-                        <div style="display: flex; align-items: center; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap;">
                             ${badgeHtml}
+                            ${catBadgeHtml}
                             <span style="color: #ff7a83; font-weight: bold; font-size: 10px; display: flex; align-items: center; gap: 2px;">
                                 🛡️ ${dmgFormatado}
                             </span>
@@ -7167,7 +7242,7 @@
 
             #moves-panel {
                 position: fixed;
-                width: 300px;
+                width: 370px;
                 z-index: 2147483646;
                 display: flex;
                 flex-direction: column;
