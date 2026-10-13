@@ -5,8 +5,6 @@
 // @description  Lê os dados dos Pokémon, estima IVs, Mercado Global Portátil e Detector de Shinies
 // @match        https://*.idleworld.online/*
 // @grant        none
-// @downloadURL  https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js
-// @updateURL    https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js
 // @run-at       document-start
 // ==/UserScript==
 
@@ -137,7 +135,7 @@
         }
     };
 
-    const CURRENT_SCRIPT_VERSION = "3.0.2";
+    const CURRENT_SCRIPT_VERSION = "3.0.4";
     const GITHUB_RAW_URL = "https://raw.githubusercontent.com/guilherme-se/justpokedex/main/JustPokedex.js";
     const AUTO_UPDATE_SETTING_KEY = "justpokedex-auto-update-enabled";
 
@@ -2497,8 +2495,8 @@
             const estado = {
                 left: rect.left,
                 top: rect.top,
-                width: isMin ? (anterior.width || 340) : rect.width,
-                height: isMin ? (anterior.height || null) : rect.height,
+                width: isMin ? (anterior.width || 340) : painel.offsetWidth,
+                height: isMin ? (anterior.height || null) : painel.offsetHeight,
                 minimized: isMin,
                 abaAtual,
                 formularioRecolhido
@@ -2588,8 +2586,8 @@
         }
 
         function doResize(e) {
-            const newWidth = Math.max(260, startWidth + (e.clientX - startX));
-            const newHeight = Math.max(180, startHeight + (e.clientY - startY));
+            const newWidth = Math.max(260, startWidth + (e.clientX - startX) / escalaPainel);
+            const newHeight = Math.max(180, startHeight + (e.clientY - startY) / escalaPainel);
 
             painel.style.width = newWidth + "px";
             painel.style.height = newHeight + "px";
@@ -2616,8 +2614,8 @@
         }
 
         function doResizeTouch(e) {
-            const newWidth = Math.max(260, startWidth + (e.touches[0].clientX - startX));
-            const newHeight = Math.max(180, startHeight + (e.touches[0].clientY - startY));
+            const newWidth = Math.max(260, startWidth + (e.touches[0].clientX - startX) / escalaPainel);
+            const newHeight = Math.max(180, startHeight + (e.touches[0].clientY - startY) / escalaPainel);
 
             painel.style.width = newWidth + "px";
             painel.style.height = newHeight + "px";
@@ -2740,6 +2738,30 @@
         }
     }
 
+    const ESCALAS_PAINEL = [1, 0.85, 0.7];
+    const SCALE_KEY = "justpokedex-panel-scale";
+    let escalaPainel = 1;
+    try {
+        const s = Number(localStorage.getItem(SCALE_KEY));
+        if (ESCALAS_PAINEL.includes(s)) escalaPainel = s;
+    } catch (e) { }
+
+    function aplicarEscalaPainel(painel) {
+        painel.style.transformOrigin = "top left";
+        painel.style.transform = escalaPainel === 1 ? "" : `scale(${escalaPainel})`;
+        const btn = document.getElementById("scale-panel");
+        if (btn) btn.title = `Tamanho: ${Math.round(escalaPainel * 100)}% (clique para alternar)`;
+        limitarPainelNaTela(painel);
+    }
+
+    function alternarEscalaPainel(painel) {
+        const i = ESCALAS_PAINEL.indexOf(escalaPainel);
+        escalaPainel = ESCALAS_PAINEL[(i + 1) % ESCALAS_PAINEL.length];
+        try { localStorage.setItem(SCALE_KEY, String(escalaPainel)); } catch (e) { }
+        aplicarEscalaPainel(painel);
+        salvarEstadoPainel(painel);
+    }
+
     function ativarArraste(painel) {
         const handle =
             document.getElementById("drag-handle");
@@ -2775,15 +2797,9 @@
         document.addEventListener("mousemove", evento => {
             if (!arrastando) return;
 
-            const maxLeft = Math.max(
-                0,
-                window.innerWidth - painel.offsetWidth
-            );
-
-            const maxTop = Math.max(
-                0,
-                window.innerHeight - painel.offsetHeight
-            );
+            const rectAtual = painel.getBoundingClientRect();
+            const maxLeft = Math.max(0, window.innerWidth - rectAtual.width);
+            const maxTop = Math.max(0, window.innerHeight - rectAtual.height);
 
             const left = Math.min(
                 Math.max(
@@ -2903,71 +2919,9 @@
                 </div>
 
                 <div class="header-actions">
-                    <button
-                        id="toggle-moves"
-                        type="button"
-                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
-                        title="Poképedia — Moves & Golpes (👊)"
-                    >
-                        👊
-                    </button>
-
-                    <button
-                        id="toggle-items"
-                        type="button"
-                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
-                        title="Poképedia — Itens & Drops (🎒)"
-                    >
-                        🎒
-                    </button>
-
-                    <button
-                        id="toggle-shiny"
-                        type="button"
-                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
-                    >
-                        ✨
-                    </button>
-
-                    <button
-                        id="toggle-daily"
-                        type="button"
-                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
-                    >
-                        ⏳
-                    </button>
-
-                    <button
-                        id="toggle-tracking"
-                        type="button"
-                        style="margin-right: 3px; font-size: 11px; padding: 0 4px;"
-                    >
-                        🐭
-                    </button>
-
-                    <button
-                        id="toggle-autoupdate"
-                        type="button"
-                        style="margin-right: 4.5px; font-size: 11px; padding: 0 4px;"
-                    >
-                        ☁️
-                    </button>
-
-                    <button
-                        id="minimize"
-                        type="button"
-                        title="Minimizar"
-                    >
-                        −
-                    </button>
-
-                    <button
-                        id="close"
-                        type="button"
-                        title="Fechar"
-                    >
-                        ×
-                    </button>
+                    <button id="scale-panel" type="button" title="Tamanho do painel" style="font-size: 14px;">⤡</button>
+                    <button id="minimize" type="button" title="Minimizar">−</button>
+                    <button id="close" type="button" title="Fechar (Alt+P reabre)">×</button>
                 </div>
             </div>
 
@@ -2976,6 +2930,14 @@
                 <div class="small-led led-red"></div>
                 <div class="small-led led-yellow"></div>
                 <div class="small-led led-green"></div>
+                <div class="tool-actions">
+                    <button id="toggle-moves" type="button" title="Poképedia — Moves & Golpes (👊)">👊</button>
+                    <button id="toggle-items" type="button" title="Poképedia — Itens & Drops (🎒)">🎒</button>
+                    <button id="toggle-shiny" type="button">✨</button>
+                    <button id="toggle-daily" type="button">⏳</button>
+                    <button id="toggle-tracking" type="button">🐭</button>
+                    <button id="toggle-autoupdate" type="button">☁️</button>
+                </div>
             </div>
 
             <div class="top-banners-grid" style="display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid rgba(255,255,255,0.08); background: #0c121c; box-sizing: border-box; user-select: none; overflow: hidden;">
@@ -3141,7 +3103,22 @@
         ativarRedimensionamento(painel);
         trocarAba(abaAtual);
         limitarPainelNaTela(painel);
+        aplicarEscalaPainel(painel);
         setTimeout(() => checarAtualizacoesGitHub(false), 2500);
+
+        document
+            .getElementById("scale-panel")
+            .addEventListener("click", evento => {
+                evento.stopPropagation();
+                alternarEscalaPainel(painel);
+            });
+
+        document
+            .getElementById("drag-handle")
+            .addEventListener("dblclick", evento => {
+                if (evento.target.closest("button")) return;
+                alternarMinimizado(painel);
+            });
 
         document
             .getElementById("minimize")
@@ -5461,7 +5438,7 @@
             }
 
             #${CONFIG.panelId}.minimized {
-                width: 235px !important;
+                width: 250px !important;
                 height: 48px !important;
             }
 
@@ -5662,6 +5639,29 @@
                 cursor: pointer;
                 font-size: 18px;
                 font-weight: bold;
+            }
+
+            #${CONFIG.panelId}
+            .tool-actions {
+                display: flex;
+                gap: 3px;
+                margin-left: auto;
+            }
+
+            #${CONFIG.panelId}
+            .tool-actions button {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 22px;
+                padding: 0;
+                color: #fff;
+                background: rgba(255,255,255,.06);
+                border: 1px solid rgba(255,255,255,.12);
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 12px;
             }
 
             #${CONFIG.panelId}
